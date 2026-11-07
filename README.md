@@ -20,6 +20,7 @@ A tiny Mac menu bar app that watches your free space every minute and cleans up 
 - **You pick the line.** He steps in when free space drops below 15 GB by default; set anything from 5 GB to 500 GB. He warns you 10 GB before that.
 - **Asks before deleting.** He gathers everything he wants to remove on one Review screen, grouped by type with sizes and the biggest files. Untick what you want to keep, then approve. Prefer hands-off? Switch to *Clean automatically*.
 - **You choose what he cleans.** Turn each category on or off in Settings.
+- **Control him from your phone.** Settings › Phone › Pair a phone shows a QR code. Your phone gets Mimo Remote, an app you can add to your Home Screen: live free space, approve what he found, change settings. Phones only see totals and categories, never file names.
 - **Checks in with you.** Notifications every 15 min, 30 min, 1 hour or 3 hours, so you know he's on patrol.
 - **Shows his work.** Open his window to see a storage ring, what he can clean (with sizes) and a live activity feed.
 
@@ -35,7 +36,7 @@ A tiny Mac menu bar app that watches your free space every minute and cleans up 
 | Old installers in Downloads (.dmg, .pkg, .zip, .iso) — *off by default* | Moved to the Bin. |
 | Empty the Bin — *off by default* | Permanently deleted. |
 
-He never touches your Documents, Desktop or Photos library, and only cleans the categories you've switched on. Your files never leave your Mac. The only network request Mimo makes is one anonymous ping on first launch so installs can be counted: a random install ID, the app version, the macOS version and the chip type. Turn it off in Settings › Privacy.
+He never touches your Documents, Desktop or Photos library, and only cleans the categories you've switched on. Your files never leave your Mac. Mimo makes one anonymous ping on first launch so installs can be counted (a random install ID, the app version, the macOS version and the chip type; turn it off in Settings › Privacy). If you pair a phone, he also shares storage totals, categories and his activity with that phone through Mimo's server.
 
 ## Install
 

@@ -4,6 +4,8 @@
 require('dotenv').config();
 const express = require('express');
 const { MongoClient } = require('mongodb');
+const path = require('path');
+const remote = require('./remote');
 
 const PORT = Number(process.env.PORT || 5060);
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -13,7 +15,12 @@ if (!MONGODB_URI) { console.error('MONGODB_URI is not set'); process.exit(1); }
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '4kb' }));
+app.use((req, res, next) => (req.path.startsWith('/v1/remote') || req.path.startsWith('/v1/device') || req.path.startsWith('/v1/pair')) ? next() : express.json({ limit: '4kb' })(req, res, next));
+
+// The phone app (installable PWA)
+app.use('/app', express.static(path.join(__dirname, 'public/app'), {
+  setHeaders: (res, p) => { if (p.endsWith('sw.js') || p.endsWith('.html')) res.set('Cache-Control', 'no-cache'); }
+}));
 
 let installs, waitlist, downloads;
 
@@ -150,11 +157,14 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
 </main></body></html>`);
 });
 
+let remoteRouter = null;
+app.use('/v1', (req, res, next) => remoteRouter ? remoteRouter(req, res, next) : res.status(503).json({ error: 'Starting up' }));
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 (async () => {
   const client = new MongoClient(MONGODB_URI);
   await client.connect();
+  remoteRouter = remote(client.db(DB_NAME));
   installs = client.db(DB_NAME).collection('installs');
   await installs.createIndex({ installId: 1 }, { unique: true });
   await installs.createIndex({ firstSeen: -1 });

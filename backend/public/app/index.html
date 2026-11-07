@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mimo Remote</title>
+<meta name="description" content="See your Mac's free space and tell Mimo what to clean, from your phone.">
+<meta name="theme-color" content="#2F83DE">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Mimo">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Figtree:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: one column phone app. A sky-blue status header with the storage ring, then cards for review, actions, settings and activity. */
+:root{
+  --paper:#F2F7FC; --card:#FFFFFF; --ink:#13202F; --ink-2:#55667A; --line:rgba(19,32,47,.10);
+  --sky:#2F83DE; --sky-deep:#1B5FAE; --sky-soft:#DCEEFC;
+  --good:#1F9D5B; --warn:#E08A12; --bad:#E2334C; --purple:#7A4FD6;
+  --display:"Bagel Fat One","Arial Rounded MT Bold",system-ui,sans-serif;
+  --body:"Figtree",-apple-system,system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{--paper:#0B131E;--card:#131F2E;--ink:#E9F1FA;--ink-2:#9DB0C4;--line:rgba(233,241,250,.10);--sky:#5AA6F0;--sky-deep:#8CC3F7;--sky-soft:#17304A;color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 var(--body);-webkit-font-smoothing:antialiased}
+body{padding-bottom:max(24px,env(safe-area-inset-bottom))}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #FFD23F;outline-offset:2px;border-radius:10px}
+.wrap{max-width:520px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+
+/* header */
+.top{background:radial-gradient(120% 120% at 10% 0%,#9FDCFA 0%,#4E9EEA 50%,#2B6FC9 100%);color:#fff;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:28px;border-radius:0 0 28px 28px}
+.bar{display:flex;align-items:center;gap:12px;padding-block:6px 18px}
+.bar img{width:40px;height:40px;border-radius:10px;box-shadow:0 6px 14px -6px rgba(0,20,60,.5)}
+.bar .t{flex:1;min-width:0}
+.bar b{display:block;font-family:var(--display);font-weight:400;font-size:22px;line-height:1.1}
+.bar small{display:flex;align-items:center;gap:6px;font-size:13px;opacity:.92}
+.dot{width:8px;height:8px;border-radius:50%;background:#7CF0B0;box-shadow:0 0 0 3px rgba(124,240,176,.25)}
+.dot.off{background:#FFB4BF;box-shadow:0 0 0 3px rgba(255,180,191,.25)}
+.hero{display:flex;align-items:center;gap:20px}
+.ring{position:relative;width:132px;height:132px;flex:none}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring .num{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.ring .num strong{font-size:40px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.ring .num span{font-size:13px;opacity:.85;margin-top:4px}
+.facts{display:grid;gap:6px;font-size:14px;min-width:0}
+.mood{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:16px;line-height:1.25;background:rgba(255,255,255,.2);padding:6px 12px;border-radius:999px;justify-self:start}
+
+/* cards */
+main{display:grid;gap:14px;margin-top:-14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:16px;box-shadow:0 10px 30px -22px rgba(10,30,60,.35)}
+.card h2{margin:0 0 10px;font-size:15px;font-weight:700;color:var(--ink-2)}
+.row{display:flex;align-items:center;gap:12px;min-height:44px}
+.row + .row{border-top:1px solid var(--line)}
+.row .grow{flex:1;min-width:0}
+.row .sub{font-size:13px;color:var(--ink-2)}
+.size{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.perm{color:var(--warn)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 18px;border-radius:14px;border:0;font-weight:700;background:var(--sky-soft);color:var(--sky-deep)}
+.btn.primary{background:var(--sky);color:#fff}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+.btn:disabled{opacity:.5;cursor:default}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.btns.one{grid-template-columns:1fr}
+.review{border-color:color-mix(in srgb,var(--purple) 40%,transparent)}
+.review h2{color:var(--purple)}
+.check{width:24px;height:24px;flex:none;accent-color:var(--sky)}
+.total{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-weight:700}
+.busy{display:flex;align-items:center;gap:10px;font-weight:600}
+.spin{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--sky-soft);border-top-color:var(--sky);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper button{width:40px;height:40px;border-radius:12px;border:1px solid var(--line);background:transparent;font-size:20px;font-weight:700}
+.stepper output{min-width:64px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
+.switch{position:relative;width:52px;height:32px;flex:none}
+.switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
+.switch span{position:absolute;inset:0;border-radius:999px;background:color-mix(in srgb,var(--ink-2) 35%,transparent);transition:background .2s}
+.switch span::after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+.switch input:checked + span{background:var(--good)}
+.switch input:checked + span::after{transform:translateX(20px)}
+.switch input:focus-visible + span{outline:3px solid #FFD23F;outline-offset:2px}
+.feed{display:grid;gap:10px;font-size:14px}
+.feed div{display:flex;gap:10px}
+.feed time{color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:64px}
+.muted{color:var(--ink-2);font-size:14px}
+.empty{color:var(--ink-2);font-size:15px;margin:0}
+
+/* pair screen */
+.pair{min-height:100vh;display:grid;align-content:center;gap:18px;padding-block:max(32px,env(safe-area-inset-top)) 32px;text-align:center}
+.pair img{width:96px;height:96px;margin:0 auto;border-radius:24px;box-shadow:0 14px 30px -14px rgba(10,40,90,.5)}
+.pair h1{font-family:var(--display);font-weight:400;font-size:34px;margin:0;line-height:1.1}
+.pair p{margin:0;color:var(--ink-2)}
+.pair ol{text-align:left;margin:0 auto;padding-left:20px;color:var(--ink-2);max-width:340px;display:grid;gap:6px}
+.code{width:100%;max-width:320px;margin:0 auto;text-align:center;font:800 32px/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.35em;text-transform:uppercase;padding:16px 8px 16px 18px;border-radius:16px;border:2px solid var(--line);background:var(--card)}
+.code:focus{border-color:var(--sky);outline:none}
+.err{color:var(--bad);font-weight:600;min-height:1.4em}
+.toast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%) translateY(140%);background:var(--ink);color:var(--paper);padding:12px 18px;border-radius:14px;font-weight:600;transition:transform .3s;max-width:calc(100% - 32px);text-align:center;z-index:5}
+.toast:not(.on){visibility:hidden;transition:transform .3s,visibility 0s .3s}
+.toast.on{transform:translateX(-50%) translateY(0)}
+footer{margin-top:18px;text-align:center}
+.linkbtn{background:none;border:0;color:var(--ink-2);text-decoration:underline;padding:10px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<section id="pairView" class="wrap pair" hidden>
+  <img src="icon-192.png" alt="">
+  <h1>Pair with your Mac</h1>
+  <ol>
+    <li>On your Mac, open Mimo and go to <b>Settings</b>.</li>
+    <li>Under <b>Phone</b>, click <b>Pair a phone</b>.</li>
+    <li>Scan the QR code, or type the 6-character code here.</li>
+  </ol>
+  <form id="pairForm" style="display:grid;gap:12px">
+    <label for="code" class="muted">Pairing code</label>
+    <input id="code" class="code" maxlength="6" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="ABC123" required>
+    <button class="btn primary" id="pairBtn" type="submit">Pair</button>
+    <div class="err" id="pairErr" role="alert"></div>
+  </form>
+  <p class="muted">Tip: add this page to your Home Screen to use Mimo like an app.</p>
+</section>
+
+<div id="appView" hidden>
+  <header class="top">
+    <div class="wrap">
+      <div class="bar">
+        <img src="icon-192.png" alt="">
+        <div class="t"><b id="macName">Your Mac</b><small><span class="dot" id="dot"></span><span id="seen">Connecting…</span></small></div>
+      </div>
+      <div class="hero">
+        <div class="ring" aria-hidden="true">
+          <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="10"/><circle id="bar" cx="50" cy="50" r="42" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="263.9" style="transition:stroke-dashoffset .6s"/></svg>
+          <div class="num"><strong id="free">–</strong><span>GB free</span></div>
+        </div>
+        <div class="facts">
+          <span class="mood" id="mood">…</span>
+          <span id="used"></span>
+          <span id="rule"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card" id="busyCard" hidden><div class="busy"><span class="spin"></span><span id="busyText">Working…</span></div></section>
+
+    <section class="card review" id="reviewCard" hidden>
+      <h2 id="reviewTitle">Waiting for your OK</h2>
+      <div id="findings"></div>
+      <div class="total"><span>Selected</span><span id="selTotal" class="size">0 KB</span></div>
+      <div class="btns">
+        <button class="btn ghost" id="notNow" type="button">Not now</button>
+        <button class="btn primary" id="cleanSel" type="button">Clean selected</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Quick actions</h2>
+      <div class="btns">
+        <button class="btn primary" id="findBtn" type="button">Find things to clean</button>
+        <button class="btn" id="checkBtn" type="button">Check now</button>
+      </div>
+      <div class="btns one"><button class="btn ghost" id="pingBtn" type="button">Send a notification to my Mac</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Settings</h2>
+      <div class="row">
+        <div class="grow">Clean below<div class="sub" id="warnAt"></div></div>
+        <div class="stepper"><button type="button" id="minus" aria-label="Lower by 5 GB">−</button><output id="limit">–</output><button type="button" id="plus" aria-label="Raise by 5 GB">+</button></div>
+      </div>
+      <div class="row">
+        <label class="grow" for="askFirst">Ask before deleting<div class="sub">Off means Mimo cleans on his own.</div></label>
+        <span class="switch"><input type="checkbox" id="askFirst"><span></span></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Places Mimo looks after</h2>
+      <div id="places"><p class="empty">Waiting for your Mac…</p></div>
+    </section>
+
+    <section class="card">
+      <h2>What Mimo has been doing</h2>
+      <div class="feed" id="feed"><p class="empty">Nothing yet.</p></div>
+    </section>
+
+    <footer><button class="linkbtn" id="unpair" type="button">Unpair this phone</button></footer>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const API = '/v1';
+  const $ = (id) => document.getElementById(id);
+  let tokenStore = null;
+  try { tokenStore = localStorage.getItem('mimoToken'); } catch (e) {}
+  let state = null, selected = new Set(), selectionTouched = false, pollTimer = null, confirmUnpair = false;
+  const pendingCmds = new Map();
+
+  const fmt = (b) => {
+    if (!b) return 'Zero KB';
+    const u = ['bytes','KB','MB','GB','TB']; let i = 0, n = b;
+    while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+    return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + ' ' + u[i];
+  };
+  const ago = (d) => {
+    const s = Math.max(0, Math.round((Date.now() - new Date(d)) / 1000));
+    if (s < 10) return 'just now';
+    if (s < 60) return s + ' sec ago';
+    if (s < 3600) return Math.round(s / 60) + ' min ago';
+    if (s < 86400) return Math.round(s / 3600) + ' h ago';
+    return Math.round(s / 86400) + ' days ago';
+  };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2600); }
+
+  async function call(path, opts = {}) {
+    const r = await fetch(API + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(tokenStore ? { Authorization: 'Bearer ' + tokenStore } : {}) } });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 401 && path !== '/pair/claim') { forget(); throw new Error('This phone is no longer paired.'); }
+    if (!r.ok) throw new Error(data.error || 'Something went wrong. Try again.');
+    return data;
+  }
+
+  // ---------- pairing ----------
+  function showPair(){ $('appView').hidden = true; $('pairView').hidden = false; clearInterval(pollTimer); }
+  function showApp(){ $('pairView').hidden = true; $('appView').hidden = false; refresh(); clearInterval(pollTimer); pollTimer = setInterval(() => { if (!document.hidden) refresh(); }, 4000); }
+  function forget(){ tokenStore = null; try { localStorage.removeItem('mimoToken'); } catch (e) {} showPair(); }
+
+  $('code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6); $('pairErr').textContent = ''; });
+  $('pairForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const code = $('code').value;
+    if (code.length !== 6) { $('pairErr').textContent = 'The code has 6 characters.'; return; }
+    $('pairBtn').disabled = true; $('pairBtn').textContent = 'Pairing…';
+    try {
+      const label = /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android phone' : 'Browser';
+      const d = await call('/pair/claim', { method: 'POST', body: JSON.stringify({ code, label }) });
+      tokenStore = d.token;
+      try { localStorage.setItem('mimoToken', d.token); } catch (e) {}
+      history.replaceState(null, '', location.pathname);
+      toast('Paired with ' + d.name);
+      showApp();
+    } catch (err) { $('pairErr').textContent = err.message; }
+    finally { $('pairBtn').disabled = false; $('pairBtn').textContent = 'Pair'; }
+  });
+
+  // ---------- commands ----------
+  async function send(type, args, label) {
+    try {
+      const d = await call('/remote/commands', { method: 'POST', body: JSON.stringify({ type, args }) });
+      pendingCmds.set(d.id, label);
+      toast(state && state.online ? 'Sent to your Mac' : 'Queued. Your Mac will do it when it comes online.');
+      setTimeout(refresh, 1200);
+    } catch (err) { toast(err.message); }
+  }
+  $('findBtn').onclick = () => send('scan', {}, 'Looking for things to clean');
+  $('checkBtn').onclick = () => send('check', {}, 'Storage checked');
+  $('pingBtn').onclick = () => send('notify', {}, 'Notification sent');
+  $('notNow').onclick = () => send('dismiss', {}, 'Review dismissed');
+  $('cleanSel').onclick = () => {
+    if (!selected.size) return;
+    send('clean', { ids: [...selected] }, 'Cleaning finished');
+    selectionTouched = false;
+  };
+  $('minus').onclick = () => state && state.status && send('setThreshold', { gb: Math.max(5, state.status.cleanBelowGB - 5) }, 'Threshold updated');
+  $('plus').onclick = () => state && state.status && send('setThreshold', { gb: Math.min(500, state.status.cleanBelowGB + 5) }, 'Threshold updated');
+  $('askFirst').onchange = (e) => send('setAskFirst', { on: e.target.checked }, 'Setting updated');
+  $('unpair').onclick = async () => {
+    if (!confirmUnpair) { confirmUnpair = true; $('unpair').textContent = 'Tap again to unpair'; setTimeout(() => { confirmUnpair = false; $('unpair').textContent = 'Unpair this phone'; }, 4000); return; }
+    try { await call('/remote/unpair', { method: 'POST', body: '{}' }); } catch (e) {}
+    forget(); toast('Unpaired');
+  };
+
+  // ---------- render ----------
+  async function refresh() {
+    try { state = await call('/remote/status'); render(); }
+    catch (err) { if (tokenStore) { $('seen').textContent = 'Can’t reach Mimo’s server'; $('dot').classList.add('off'); } }
+  }
+
+  function render() {
+    const s = state.status;
+    $('macName').textContent = state.name || 'Your Mac';
+    $('dot').classList.toggle('off', !state.online);
+    $('seen').textContent = state.online ? 'Online · updated ' + ago(s && s.updatedAt || state.lastSeen) : (state.lastSeen ? 'Offline · last seen ' + ago(state.lastSeen) : 'Waiting for your Mac…');
+
+    // command results
+    for (const c of state.commands || []) {
+      if (pendingCmds.has(c.id) && (c.status === 'done' || c.status === 'failed')) {
+        toast(c.status === 'done' ? (c.message || pendingCmds.get(c.id)) : (c.message || 'Your Mac couldn’t do that'));
+        pendingCmds.delete(c.id);
+      }
+    }
+    if (!s) return;
+
+    const total = s.totalGB || 1, used = Math.max(0, total - s.freeGB);
+    $('free').textContent = s.freeGB;
+    $('bar').style.strokeDashoffset = 263.9 * (1 - used / total);
+    $('mood').textContent = s.mood || '';
+    $('used').textContent = used + ' of ' + total + ' GB used';
+    $('rule').textContent = (s.askFirst ? 'Asks before cleaning' : 'Cleans automatically') + ' below ' + s.cleanBelowGB + ' GB';
+    $('limit').textContent = s.cleanBelowGB + ' GB';
+    $('warnAt').textContent = 'Heads-up at ' + (s.cleanBelowGB + 10) + ' GB';
+    if (document.activeElement !== $('askFirst')) $('askFirst').checked = !!s.askFirst;
+
+    const busy = s.isCleaning ? (s.cleaningStep || 'Cleaning…') : s.isScanning ? 'Looking for things to clean…' : s.isMapping ? 'Mapping your Mac…' : '';
+    $('busyCard').hidden = !busy; $('busyText').textContent = busy;
+    $('findBtn').disabled = $('cleanSel').disabled = !!(s.isCleaning || s.isScanning);
+
+    // review
+    const f = s.findings || [];
+    const showReview = f.length > 0 && (s.pendingReview || s.reviewOpen);
+    $('reviewCard').hidden = !showReview;
+    if (showReview) {
+      if (!selectionTouched) selected = new Set(f.map((x) => x.id));
+      else selected = new Set([...selected].filter((id) => f.some((x) => x.id === id)));
+      $('reviewTitle').textContent = s.pendingReview ? 'Mimo wants to clean these' : 'Ready to clean';
+      $('findings').innerHTML = f.map((x) => `
+        <label class="row">
+          <input type="checkbox" class="check" data-id="${esc(x.id)}" ${selected.has(x.id) ? 'checked' : ''}>
+          <span class="grow">${esc(x.name)}<div class="sub ${x.permanent ? 'perm' : ''}">${x.count} item${x.count === 1 ? '' : 's'} · ${x.permanent ? 'deleted permanently' : 'moved to the Bin'}</div></span>
+          <span class="size">${fmt(x.bytes)}</span>
+        </label>`).join('');
+      $('findings').querySelectorAll('input').forEach((cb) => cb.onchange = () => {
+        selectionTouched = true;
+        cb.checked ? selected.add(cb.dataset.id) : selected.delete(cb.dataset.id);
+        updateTotal(f);
+      });
+      updateTotal(f);
+    }
+
+    // places
+    const p = s.places || [];
+    $('places').innerHTML = p.length ? p.map((x) => `
+      <div class="row">
+        <span class="grow">${esc(x.name)}${x.bytes != null ? `<div class="sub">${fmt(x.bytes)}</div>` : ''}</span>
+        <span class="switch"><input type="checkbox" aria-label="Let Mimo clean ${esc(x.name)}" data-place="${esc(x.id)}" ${x.on ? 'checked' : ''}><span></span></span>
+      </div>`).join('') : '<p class="empty">No places yet. Mimo is still mapping your Mac.</p>';
+    $('places').querySelectorAll('input').forEach((cb) => cb.onchange = () => send('setPlace', { id: cb.dataset.place, on: cb.checked }, 'Place updated'));
+
+    // activity
+    const a = s.activity || [];
+    $('feed').innerHTML = a.length ? a.map((x) => `<div><time>${new Date(x.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time><span>${esc(x.text)}</span></div>`).join('') : '<p class="empty">Nothing yet.</p>';
+  }
+
+  function updateTotal(f) {
+    const sum = f.filter((x) => selected.has(x.id)).reduce((t, x) => t + x.bytes, 0);
+    $('selTotal').textContent = fmt(sum);
+    $('cleanSel').textContent = selected.size ? 'Clean ' + fmt(sum) : 'Clean selected';
+    $('cleanSel').disabled = !selected.size;
+  }
+
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && tokenStore) refresh(); });
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+  // QR codes open /app/#pair=CODE
+  const m = location.hash.match(/pair=([A-Za-z0-9]{6})/);
+  if (tokenStore) showApp();
+  else { showPair(); if (m) { $('code').value = m[1].toUpperCase(); $('pairForm').requestSubmit(); } }
+})();
+</script>
+</body>
+</html>

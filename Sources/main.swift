@@ -1,6 +1,7 @@
 import SwiftUI
 import ServiceManagement
 import UserNotifications
+import CoreImage.CIFilterBuiltins
 
 // MARK: - App
 
@@ -189,6 +190,18 @@ final class Mimo: ObservableObject {
     @Published var customPlaces: [CleanTarget] { didSet { d.set(try? JSONEncoder().encode(customPlaces), forKey: "customPlaces") } }
     @Published var countInstall: Bool { didSet { d.set(countInstall, forKey: "countInstall") } }
 
+    // phone remote
+    @Published var pairCode: String?
+    @Published var pairExpires: Date?
+    @Published var pairedPhones: Int = 0 { didSet { d.set(pairedPhones, forKey: "pairedPhones") } }
+    @Published var remoteError: String?
+    private var remoteTimer: Timer?
+    private var remoteBusy = false
+    private var lastStatusPush = Date.distantPast
+    private var lastCommandPoll = Date.distantPast
+    private var statusDirty = true
+    private lazy var macName: String = Host.current().localizedName ?? "Mac"
+
     var warnGB: Int { cleanBelowGB + 10 }
     var reportEvery: TimeInterval { TimeInterval(reportMinutes * 60) }
 
@@ -217,6 +230,7 @@ final class Mimo: ObservableObject {
         if days["installers"] == nil, let old = d.object(forKey: "installerDays") as? Int { days["installers"] = old }
         daysOverride = days
         countInstall = (d.object(forKey: "countInstall") as? Bool) ?? true
+        pairedPhones = d.integer(forKey: "pairedPhones")
         customPlaces = (d.data(forKey: "customPlaces").flatMap { try? JSONDecoder().decode([CleanTarget].self, from: $0) }) ?? []
         map = (try? Data(contentsOf: mapURL)).flatMap { data in
             let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
@@ -237,6 +251,7 @@ final class Mimo: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.check() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.check() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.reportInstallIfNeeded() }
+        if d.bool(forKey: "remoteOn") { DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.startRemoteLoop() } }
     }
 
     // MARK: install count
@@ -246,13 +261,16 @@ final class Mimo: ObservableObject {
     static let backend = URL(string: "https://mimo.techtree.lifestyle/v1/installs")!
     private var lastInstallAttempt = Date.distantPast
 
+    var installId: String {
+        if let id = d.string(forKey: "installId") { return id }
+        let new = UUID().uuidString.lowercased(); d.set(new, forKey: "installId"); return new
+    }
+
     func reportInstallIfNeeded() {
         guard countInstall, !d.bool(forKey: "installReported"),
               Date().timeIntervalSince(lastInstallAttempt) > 3600 else { return }
         lastInstallAttempt = Date()
-        let id = d.string(forKey: "installId") ?? {
-            let new = UUID().uuidString.lowercased(); d.set(new, forKey: "installId"); return new
-        }()
+        let id = installId
         #if arch(arm64)
         let arch = "arm64"
         #else
@@ -344,6 +362,7 @@ final class Mimo: ObservableObject {
     }
 
     func add(_ icon: String, _ text: String) {
+        statusDirty = true
         activity.insert(Activity(time: Date(), icon: icon, text: text), at: 0)
         if activity.count > 40 { activity.removeLast() }
         log(text)
@@ -642,6 +661,202 @@ final class Mimo: ObservableObject {
                 self.scan()
             }
         }
+    }
+
+    // MARK: phone remote
+    // Pairs this Mac with the owner's phone. The Mac sends storage totals, what Mimo found per category,
+    // its places and activity (never file names or paths) and polls for commands the phone queued.
+
+    static let remoteAPI = "https://mimo.techtree.lifestyle/v1"
+    var remoteAppURL: String { "https://mimo.techtree.lifestyle/app/" + (pairCode.map { "#pair=\($0)" } ?? "") }
+
+    private var deviceSecret: String {
+        if let s = d.string(forKey: "deviceSecret") { return s }
+        let s = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
+        d.set(s, forKey: "deviceSecret"); return s
+    }
+
+    private func remoteCall(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> [String: Any] {
+        var req = URLRequest(url: URL(string: Mimo.remoteAPI + path)!, timeoutInterval: 20)
+        req.httpMethod = method
+        req.setValue(installId, forHTTPHeaderField: "X-Mimo-Device")
+        req.setValue("Bearer " + deviceSecret, forHTTPHeaderField: "Authorization")
+        if let body {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        guard (200..<300).contains(code) else {
+            throw NSError(domain: "Mimo", code: code, userInfo: [NSLocalizedDescriptionKey: (obj["error"] as? String) ?? "Mimo's server answered \(code)"])
+        }
+        return obj
+    }
+
+    func startPairing() {
+        remoteError = nil
+        let body: [String: Any] = ["deviceId": installId, "secret": deviceSecret, "name": macName]
+        Task {
+            do {
+                let r = try await remoteCall("/pair/start", method: "POST", body: body)
+                await MainActor.run {
+                    self.pairCode = r["code"] as? String
+                    self.pairExpires = Date().addingTimeInterval(600)
+                    self.d.set(true, forKey: "remoteOn")
+                    self.add("iphone", "Showing a code to pair your phone")
+                    self.statusDirty = true
+                    self.startRemoteLoop()
+                }
+            } catch {
+                await MainActor.run { self.remoteError = "Couldn't reach Mimo's server. Check your internet and try again." }
+            }
+        }
+    }
+
+    func cancelPairing() { pairCode = nil; pairExpires = nil }
+
+    func unpairAll() {
+        Task {
+            do {
+                _ = try await remoteCall("/device/unpair-all", method: "POST", body: [:])
+                await MainActor.run {
+                    self.pairedPhones = 0; self.pairCode = nil
+                    self.add("iphone.slash", "Unpaired all phones")
+                }
+            } catch {
+                await MainActor.run { self.remoteError = "Couldn't reach Mimo's server to unpair. Try again." }
+            }
+        }
+    }
+
+    func startRemoteLoop() {
+        guard remoteTimer == nil else { return }
+        remoteTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.remoteTick() }
+        remoteTick()
+    }
+
+    private func remoteTick() {
+        if let exp = pairExpires, Date() > exp { pairCode = nil; pairExpires = nil }
+        let active = pairedPhones > 0 || pairCode != nil
+        let pollEvery: TimeInterval = active ? 5 : 60
+        guard !remoteBusy, Date().timeIntervalSince(lastCommandPoll) >= pollEvery else { return }
+        remoteBusy = true
+        lastCommandPoll = Date()
+        let pushStatus = active && (statusDirty || Date().timeIntervalSince(lastStatusPush) >= 20)
+        let status = pushStatus ? remoteStatus() : [:]
+        if pushStatus { statusDirty = false; lastStatusPush = Date() }
+        Task {
+            defer { DispatchQueue.main.async { self.remoteBusy = false } }
+            do {
+                if pushStatus {
+                    let r = try await remoteCall("/device/status", method: "POST", body: ["status": status])
+                    await MainActor.run { self.updatePhones(r["phones"] as? Int) }
+                }
+                let r = try await remoteCall("/device/commands")
+                await MainActor.run { self.updatePhones(r["phones"] as? Int) }
+                for c in (r["commands"] as? [[String: Any]]) ?? [] {
+                    guard let id = c["id"] as? String, let type = c["type"] as? String else { continue }
+                    let args = c["args"] as? [String: Any] ?? [:]
+                    let (ok, message) = await MainActor.run { self.runRemote(type, args) }
+                    _ = try? await remoteCall("/device/commands/\(id)", method: "POST", body: ["ok": ok, "message": message])
+                    await MainActor.run { self.statusDirty = true; self.lastCommandPoll = .distantPast }
+                }
+            } catch {
+                // Offline or server unavailable: try again on the next tick.
+            }
+        }
+    }
+
+    private func updatePhones(_ n: Int?) {
+        guard let n else { return }
+        if n > pairedPhones && pairCode != nil {
+            pairCode = nil; pairExpires = nil
+            add("iphone", "Paired with your phone")
+            notify("Your phone is paired 📱 You can now check on me and tell me what to clean from anywhere.")
+        }
+        pairedPhones = n
+    }
+
+    /// Runs a command that came from the paired phone. Returns whether it worked and a short message for the phone.
+    private func runRemote(_ type: String, _ args: [String: Any]) -> (Bool, String) {
+        switch type {
+        case "check":
+            check(manual: true)
+            return (true, "Checked: \(freeGB) GB free")
+        case "notify":
+            notify("Hello from your phone 📱 " + friendlyLine())
+            return (true, "Notification sent to your Mac")
+        case "scan":
+            add("iphone", "Your phone asked me to look for things to clean")
+            prepareReview(reason: .manual)
+            return (true, "Looking for things to clean")
+        case "clean":
+            let ids = Set((args["ids"] as? [String]) ?? [])
+            let valid = ids.intersection(Set(findings.map { $0.id }))
+            guard !valid.isEmpty else { return (false, "Nothing to clean right now. Tap Find things to clean first.") }
+            selected = valid
+            add("iphone", "Your phone approved cleaning \(fmt(selectedBytes))")
+            approve()
+            return (true, "Cleaning started")
+        case "dismiss":
+            dismissReview()
+            return (true, "OK, not now")
+        case "setThreshold":
+            let gb = max(5, min(500, (args["gb"] as? Int) ?? cleanBelowGB))
+            cleanBelowGB = gb
+            add("iphone", "Your phone set cleaning to start below \(gb) GB")
+            return (true, "Mimo now steps in below \(gb) GB")
+        case "setAskFirst":
+            let on = (args["on"] as? Bool) ?? true
+            askFirst = on
+            add("iphone", on ? "Your phone turned on Ask me first" : "Your phone turned on Clean automatically")
+            return (true, on ? "Mimo will ask before deleting" : "Mimo will clean on his own")
+        case "setPlace":
+            guard let id = args["id"] as? String, let t = allPlaces.first(where: { $0.id == id }) else { return (false, "That place isn't on this Mac anymore") }
+            let on = (args["on"] as? Bool) ?? false
+            setOn(t, on)
+            add("iphone", "Your phone turned \(on ? "on" : "off") \(t.name)")
+            scan()
+            return (true, "\(t.name) turned \(on ? "on" : "off")")
+        case "remap":
+            runMap(firstTime: false)
+            return (true, "Mapping your Mac")
+        default:
+            return (false, "This version of Mimo doesn't know that command. Update Mimo on your Mac.")
+        }
+    }
+
+    private func remoteStatus() -> [String: Any] {
+        let iso = ISO8601DateFormatter()
+        return [
+            "name": macName,
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+            "freeGB": freeGB, "totalGB": totalGB,
+            "mood": "\(mood.text) \(mood.emoji)",
+            "isCleaning": isCleaning, "isScanning": isScanning, "isMapping": isMapping,
+            "cleaningStep": cleaningStep,
+            "pendingReview": pendingReview,
+            "cleanBelowGB": cleanBelowGB, "askFirst": askFirst,
+            "lastFreed": lastFreed ?? 0, "totalFreed": totalFreed,
+            "findings": findings.map { ["id": $0.id, "name": $0.target.name, "bytes": $0.bytes, "count": $0.items.count, "permanent": $0.target.permanent] as [String: Any] },
+            "places": allPlaces.map { t -> [String: Any] in
+                var p: [String: Any] = ["id": t.id, "name": t.name, "on": isOn(t)]
+                if let b = knownSize(t) { p["bytes"] = b }
+                return p
+            },
+            "activity": activity.prefix(15).map { ["time": iso.string(from: $0.time), "text": $0.text] },
+            "updatedAt": iso.string(from: Date()),
+        ]
+    }
+
+    func qrImage(_ text: String) -> NSImage? {
+        let f = CIFilter.qrCodeGenerator()
+        f.message = Data(text.utf8)
+        f.correctionLevel = "M"
+        guard let out = f.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
+              let cg = CIContext().createCGImage(out, from: out.extent) else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: out.extent.width / 2, height: out.extent.height / 2))
     }
 
     // MARK: notifications + log
@@ -1095,6 +1310,41 @@ struct SettingsTab: View {
                         Spacer()
                         Button("Choose places") { mimo.tab = .places }.controlSize(.small)
                     }
+                }
+
+                section("Phone") {
+                    if let code = mimo.pairCode {
+                        HStack(alignment: .top, spacing: 14) {
+                            if let qr = mimo.qrImage(mimo.remoteAppURL) {
+                                Image(nsImage: qr).interpolation(.none).resizable().frame(width: 120, height: 120)
+                                    .background(Color.white).cornerRadius(8)
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Scan with your phone's camera").font(.callout.weight(.semibold))
+                                Text("Or open mimo.techtree.lifestyle/app and enter:").font(.caption).foregroundStyle(.secondary)
+                                Text(code).font(.system(size: 24, weight: .bold, design: .monospaced)).textSelection(.enabled)
+                                if let exp = mimo.pairExpires { Text("Expires \(exp, style: .relative)").font(.caption2).foregroundStyle(.tertiary) }
+                                Button("Cancel") { mimo.cancelPairing() }.controlSize(.small)
+                            }
+                        }
+                    } else {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Control Mimo from your phone")
+                                Text(mimo.pairedPhones == 0 ? "See your storage and approve cleaning from anywhere." :
+                                        "\(mimo.pairedPhones) phone\(mimo.pairedPhones == 1 ? "" : "s") paired")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(mimo.pairedPhones == 0 ? "Pair a phone" : "Pair another") { mimo.startPairing() }.controlSize(.small)
+                        }
+                        if mimo.pairedPhones > 0 {
+                            Button("Unpair all phones") { mimo.unpairAll() }.controlSize(.small)
+                        }
+                    }
+                    if let err = mimo.remoteError { Text(err).font(.caption).foregroundStyle(.orange) }
+                    Text("Paired phones see your storage totals, what I found by category and my activity. File names never leave your Mac.")
+                        .font(.caption2).foregroundStyle(.tertiary)
                 }
 
                 section("Privacy") {

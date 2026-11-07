@@ -1,0 +1,15 @@
+{
+  "name": "Mimo Remote",
+  "short_name": "Mimo",
+  "description": "See your Mac's free space and tell Mimo what to clean, from your phone.",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "background_color": "#F5F9FD",
+  "theme_color": "#2F83DE",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
