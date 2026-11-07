@@ -57,14 +57,14 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 // Mimo calls this once, the first time it runs on a Mac.
 app.post('/v1/installs', rateLimit, async (req, res) => {
   try {
-    const { installId, appVersion, osVersion, arch } = req.body || {};
+    const { installId, appVersion, osVersion, arch, platform } = req.body || {};
     if (!UUID.test(installId || '')) return res.status(400).json({ error: 'installId must be a UUID' });
     const now = new Date();
     const r = await installs.updateOne(
       { installId: installId.toLowerCase() },
       {
         $setOnInsert: { installId: installId.toLowerCase(), firstSeen: now },
-        $set: { lastSeen: now, appVersion: clean(appVersion), osVersion: clean(osVersion), arch: clean(arch, 12) },
+        $set: { lastSeen: now, appVersion: clean(appVersion), osVersion: clean(osVersion), arch: clean(arch, 12), platform: ['windows', 'macos'].includes(platform) ? platform : (/^windows/i.test(osVersion || '') ? 'windows' : 'macos') },
       },
       { upsert: true }
     );
@@ -76,7 +76,7 @@ app.post('/v1/installs', rateLimit, async (req, res) => {
 });
 
 // Download button clicks. The page sends these with sendBeacon (plain text), so accept text too.
-const SOURCES = new Set(['hero', 'footer', 'nav', 'readme', 'other']);
+const SOURCES = new Set(['hero', 'footer', 'nav', 'readme', 'other', 'hero-win', 'footer-win', 'nav-win']);
 app.get('/v1/downloads', async (req, res) => {
   try { res.json({ downloads: await downloads.countDocuments() }); }
   catch (e) { console.error(e); res.status(500).json({ error: 'Could not load downloads' }); }
@@ -111,7 +111,7 @@ app.post('/v1/windows', rateLimit, async (req, res) => {
 async function stats() {
   const now = Date.now();
   const since = (days) => new Date(now - days * 86_400_000);
-  const [total, d1, d7, d30, byVersion, byArch, byDay, windowsWaiting, downloadClicks, downloads7d] = await Promise.all([
+  const [total, d1, d7, d30, byVersion, byArch, byDay, windowsWaiting, downloadClicks, downloads7d, byPlatform, winDownloads] = await Promise.all([
     installs.countDocuments(),
     installs.countDocuments({ firstSeen: { $gte: since(1) } }),
     installs.countDocuments({ firstSeen: { $gte: since(7) } }),
@@ -126,9 +126,11 @@ async function stats() {
     waitlist.countDocuments(),
     downloads.countDocuments(),
     downloads.countDocuments({ at: { $gte: since(7) } }),
+    installs.aggregate([{ $group: { _id: { $ifNull: ['$platform', 'macos'] }, count: { $sum: 1 } } }]).toArray(),
+    downloads.countDocuments({ source: /-win$/ }),
   ]);
   const map = (a) => a.map((x) => ({ [x._id || 'unknown']: x.count })).reduce((o, x) => Object.assign(o, x), {});
-  return { totalInstalls: total, last24h: d1, last7d: d7, last30d: d30, byVersion: map(byVersion), byChip: map(byArch), byDay: map(byDay), windowsWaiting, downloadClicks, downloads7d, updatedAt: new Date().toISOString() };
+  return { totalInstalls: total, last24h: d1, last7d: d7, last30d: d30, byVersion: map(byVersion), byChip: map(byArch), byDay: map(byDay), windowsWaiting, downloadClicks, downloads7d, byPlatform: map(byPlatform), windowsDownloads: winDownloads, updatedAt: new Date().toISOString() };
 }
 
 app.get('/v1/stats', async (req, res) => {
@@ -152,7 +154,8 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
 <h1>Mimo installs</h1><p>Updated ${new Date(s.updatedAt).toUTCString()}</p>
 <div class="big">${s.totalInstalls.toLocaleString()}</div><p>Macs that have installed Mimo</p>
 <div class="row"><div><b>${s.last24h}</b>last 24 hours</div><div><b>${s.last7d}</b>last 7 days</div><div><b>${s.last30d}</b>last 30 days</div><div><b>${s.windowsWaiting}</b>waiting for Windows</div></div>
-<div class="row"><div><b>${s.downloadClicks.toLocaleString()}</b>download clicks</div><div><b>${s.downloads7d}</b>clicks in the last 7 days</div></div>
+<div class="row"><div><b>${(s.byPlatform.macos || 0).toLocaleString()}</b>Mac installs</div><div><b>${(s.byPlatform.windows || 0).toLocaleString()}</b>Windows installs</div></div>
+<div class="row"><div><b>${s.downloadClicks.toLocaleString()}</b>download clicks</div><div><b>${s.windowsDownloads.toLocaleString()}</b>of them for Windows</div><div><b>${s.downloads7d}</b>clicks in the last 7 days</div></div>
 <table><tr><td><b>Day</b></td><td><b>New installs</b></td></tr>${rows}</table>
 </main></body></html>`);
 });

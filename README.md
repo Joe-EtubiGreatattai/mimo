@@ -8,8 +8,9 @@
 A tiny Mac menu bar app that watches your free space every minute and cleans up before you run out.</p>
 
 <p align="center">
-  <a href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo.dmg"><strong>⬇︎ Download Mimo for macOS</strong></a><br>
-  <sub>Free · macOS 13 Ventura or later · Apple silicon and Intel</sub>
+  <a href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo.dmg"><strong>⬇︎ Download for macOS</strong></a> &nbsp;·&nbsp;
+  <a href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo-Setup.exe"><strong>⬇︎ Download for Windows</strong></a><br>
+  <sub>Free · macOS 13+ (Apple silicon and Intel) · Windows 10 and 11</sub>
 </p>
 
 ---
@@ -46,6 +47,14 @@ He never touches your Documents, Desktop or Photos library, and only cleans the 
 4. In **System Settings › Privacy & Security › Full Disk Access**, switch Mimo on so he can reach WhatsApp's folder.
 
 Mimo starts by himself when you log in. To quit, open his window, click the menu next to **Check** and choose **Quit Mimo**.
+
+## Windows
+
+Run **Mimo-Setup.exe**. Mimo installs for your user (no admin needed) and lives in the system tray next to the clock. The installer isn't signed with a Microsoft certificate yet, so Windows may say it protected your PC: click **More info**, then **Run anyway**.
+
+On Windows Mimo looks after temporary files (older than 2 days), Chrome, Edge and Firefox caches, old WhatsApp Desktop media, Teams, Slack and Discord caches, Spotify's cache, crash dumps, and npm, Yarn, pip and Gradle caches. Old installers in Downloads, NuGet packages and emptying the Recycle Bin are available but off by default. Everything else works like the Mac version: Review before deleting, mapping your folders, your own places, and phone control.
+
+The Windows app is in [`windows/`](windows/) and is built and tested on a Windows machine by GitHub Actions for every release.
 
 ## Build from source
 

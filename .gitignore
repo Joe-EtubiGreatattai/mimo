@@ -1,5 +1,6 @@
-dist/
-build/
+/dist/
+/build/
 *.iconset/
 render
 .DS_Store
+node_modules/
