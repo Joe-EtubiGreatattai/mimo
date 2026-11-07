@@ -22,9 +22,8 @@ jobs:
       run:
         working-directory: windows
     steps:
+      # Builds from main (the release's code), then attaches the installer to the release tag.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
