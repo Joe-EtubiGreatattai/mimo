@@ -57,6 +57,12 @@ nav .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px
 .btn-primary:hover{background:var(--sky-deep)}
 .btn-small{padding:10px 16px;font-size:14px}
 .btn svg{width:18px;height:18px}
+.btn-win{background:transparent;color:var(--ink);border:1.5px solid var(--line);font-weight:600;cursor:pointer;gap:10px}
+.btn-win:hover{border-color:var(--sky)}
+.btn-win[aria-pressed="true"]{border-color:var(--good);cursor:default}
+.btn-win .soon{font:600 11px/1 var(--body);text-transform:uppercase;letter-spacing:.06em;padding:4px 7px;border-radius:999px;background:var(--sky-soft);color:var(--sky-deep)}
+.btn-win .count{font-weight:500;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.win-note{flex-basis:100%;font-size:14px;color:var(--ink-2);min-height:1.4em}
 
 /* hero */
 .hero{padding-block:28px 64px}
@@ -65,7 +71,8 @@ nav .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px
 .hero h1{font-family:var(--display);font-weight:400;font-size:clamp(40px,5.2vw,64px);line-height:.98;margin-top:0;letter-spacing:-.5px}
 .hero h1 em{font-style:normal;color:var(--sky)}
 .lede{margin-top:22px;font-size:19px;color:var(--ink-2);max-width:31em}
-.cta-row{margin-top:30px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 20px}
+.cta-row{margin-top:30px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 14px}
+.cta-row .meta{flex-basis:100%}
 .meta{font-size:14px;line-height:1.45;color:var(--ink-2)}
 
 /* demo stage */
@@ -244,10 +251,12 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
   <div class="wrap">
     <div>
       <h1>Mimo keeps your Mac from running out of space.</h1>
-      <p class="lede">Mimo sits in your Mac's menu bar and checks your free space every minute. When it gets low, he clears caches and old WhatsApp media on his own, then tells you how much room he got back.</p>
+      <p class="lede">Mimo sits in your Mac's menu bar and checks your free space every minute. When it gets low, he gathers the caches and old WhatsApp media he can clear, asks for your OK, then tells you how much room he got back.</p>
       <div class="cta-row">
         <a class="btn btn-primary dl" href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo.dmg"><svg><use href="#apple"/></svg>Download for macOS</a>
-        <span class="meta">Free. Needs macOS 13 or later.<br>Runs on Apple silicon and Intel Macs.</span>
+        <button class="btn btn-win" type="button" data-win aria-pressed="false"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.1 10.4 4v7.2H3zm8.3-1.2L21 2.5v8.7h-9.7zM3 12.2h7.4v7.2L3 18.3zm8.3 0H21v9.3l-9.7-1.4z"/></svg><span class="win-label">Windows</span><span class="soon">Coming soon</span><span class="count" data-win-count></span></button>
+        <span class="meta">Free. Needs macOS 13 or later. Runs on Apple silicon and Intel Macs.</span>
+        <span class="win-note" data-win-note>On Windows? Tap the Windows button and we'll count you in.</span>
       </div>
     </div>
 
@@ -291,7 +300,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
   <div class="wrap">
     <div class="sec-head">
       <h2>When Mimo steps in</h2>
-      <p>Every 60 seconds Mimo reads how much space macOS says you can actually use. Nothing happens while you're in the green. He speaks up at 25 GB and gets to work at 15 GB, long before your Mac starts refusing downloads.</p>
+      <p>Every 60 seconds Mimo reads how much space macOS says you can actually use. Nothing happens while you're in the green. By default he speaks up at 25 GB and steps in at 15 GB. You can move that line anywhere from 5 GB to 500 GB in his settings.</p>
     </div>
     <div class="gauge" aria-label="Free space scale from 0 to 100 gigabytes with markers at 15 and 25">
       <div class="gtrack">
@@ -301,7 +310,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
       <div class="gtick" style="left:25%"><span>25 GB</span></div>
       <div class="gaxis"><span>0 GB free</span><span>50 GB</span><span>100 GB+</span></div>
       <div class="gnotes">
-      <p class="gnote"><b>Below 15 GB</b>Cleans right away and reports what he freed.</p>
+      <p class="gnote"><b>Below 15 GB</b>Asks you to review what he found, or cleans right away if you prefer.</p>
       <p class="gnote mid"><b>Below 25 GB</b>Sends a heads-up so you're not surprised.</p>
       <p class="gnote" style="text-align:right"><b>Above 25 GB</b>Quiet check-ins on your schedule.</p>
       </div>
@@ -313,7 +322,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
   <div class="wrap">
     <div class="sec-head">
       <h2>What he cleans</h2>
-      <p>Mimo goes after five places that quietly grow to many gigabytes. He never touches your documents, photos library or downloads.</p>
+      <p>Switch each of these on or off in Mimo's settings. Old installers in Downloads and emptying the Bin are off until you turn them on.</p>
     </div>
     <div class="fetch">
       <article><span class="tag del">Deleted, apps rebuild it</span><h3>App caches</h3><p>Temporary files apps keep to load faster. Apps recreate them the next time they need them.</p><code>~/Library/Caches</code></article>
@@ -321,7 +330,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
       <article><span class="tag del">Deleted, apps rebuild it</span><h3>Xcode build data</h3><p>DerivedData from old builds. Xcode makes it again on your next build.</p><code>~/Library/Developer/Xcode/DerivedData</code></article>
       <article><span class="tag del">Deleted, apps rebuild it</span><h3>Gradle caches</h3><p>Downloaded Android build dependencies. Gradle fetches what it needs again.</p><code>~/.gradle/caches</code></article>
       <article><span class="tag del">Deleted, apps rebuild it</span><h3>npm cache</h3><p>Package tarballs npm already installed. Your projects keep their node_modules.</p><code>~/.npm/_cacache</code></article>
-      <article><span class="tag" style="background:rgba(31,157,91,.15);color:var(--good)">Never touched</span><h3>Your own files</h3><p>Documents, Desktop, Downloads, your Photos library and anything you made yourself stay exactly where they are.</p><code>~/Documents · ~/Desktop · ~/Pictures</code></article>
+      <article><span class="tag" style="background:rgba(31,157,91,.15);color:var(--good)">Never touched</span><h3>Your own files</h3><p>Documents, Desktop, your Photos library and anything you made yourself stay put. In Downloads he only looks at old installers, and only if you allow it.</p><code>~/Documents · ~/Desktop · ~/Pictures</code></article>
     </div>
   </div>
 </section>
@@ -359,8 +368,9 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
   <div class="wrap">
     <div class="sec-head"><h2>Questions</h2></div>
     <div class="faq">
-      <details><summary>Will Mimo delete my photos or documents?</summary><p>No. He only works in the five folders listed above. WhatsApp media is moved to your Bin, and only when it's more than 30 days old, so you can restore anything he moved.</p></details>
-      <details><summary>Does he send my data anywhere?</summary><p>No. Mimo runs entirely on your Mac and doesn't connect to the internet. His activity log stays in your Library › Logs folder.</p></details>
+      <details><summary>Can Mimo ask me before he deletes anything?</summary><p>Yes, and that's how he starts. When space runs low he puts everything he wants to remove on one Review screen, grouped by type with sizes and the biggest files listed. Untick anything you want to keep and click Clean selected. If you'd rather not be asked, switch him to Clean automatically in Settings.</p></details>
+      <details><summary>Will Mimo delete my photos or documents?</summary><p>No. He only works in the places listed above, and only the ones you've switched on. WhatsApp media is moved to your Bin, and only when it's more than 30 days old, so you can restore anything he moved.</p></details>
+      <details><summary>Does he send my data anywhere?</summary><p>Your files never leave your Mac. The only thing Mimo sends is one anonymous ping the first time he runs, so we can count installs: a random ID he makes up, his version number, your macOS version and whether your Mac has an Apple or Intel chip. You can switch it off in Settings › Privacy. His activity log stays in your Library › Logs folder.</p></details>
       <details><summary>Does emptying the Bin matter?</summary><p>Yes. WhatsApp media in the Bin still takes up space until you empty it. Caches are removed straight away.</p></details>
       <details><summary>Will he slow my Mac down?</summary><p>Checking free space takes a fraction of a second, once a minute. Cleaning runs at low priority in the background.</p></details>
       <details><summary>How do I stop him?</summary><p>Open his window, click the menu next to Check, and choose Quit Mimo. To remove him, drag Mimo from Applications to the Bin.</p></details>
@@ -373,9 +383,11 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
     <svg class="closing-icon"><use href="#mimo"/></svg>
     <div class="closing-text">
       <h2>Download Mimo</h2>
-      <p>Version 1.0.0 · 839 KB disk image · macOS 13 or later</p>
+      <p>Version 1.1.0 · disk image · macOS 13 or later</p>
     </div>
     <a class="btn btn-primary dl" href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo.dmg"><svg><use href="#apple"/></svg>Download for macOS</a>
+    <button class="btn btn-win" type="button" data-win aria-pressed="false"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.1 10.4 4v7.2H3zm8.3-1.2L21 2.5v8.7h-9.7zM3 12.2h7.4v7.2L3 18.3zm8.3 0H21v9.3l-9.7-1.4z"/></svg><span class="win-label">Windows</span><span class="soon">Coming soon</span><span class="count" data-win-count></span></button>
+    <p class="win-note" data-win-note>On Windows? Tap the button to say you want Mimo there. We build next for whatever most people ask for.</p>
   </div>
 </section>
 
@@ -456,6 +468,45 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
   }
   if (!reduce) setTimeout(loop, 1200);
 
+})();
+
+// Windows waitlist
+(function(){
+  const API = 'https://mimo.techtree.lifestyle/v1/windows';
+  const buttons = [...document.querySelectorAll('[data-win]')];
+  let joined = false, voter = null;
+  try { joined = localStorage.getItem('mimoWinJoined') === '1'; voter = localStorage.getItem('mimoWinVoter'); } catch (e) {}
+  if (!voter) {
+    voter = (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => (Math.random()*16|0).toString(16)));
+    try { localStorage.setItem('mimoWinVoter', voter); } catch (e) {}
+  }
+  function render(n){
+    buttons.forEach(b => {
+      const c = b.querySelector('[data-win-count]');
+      if (typeof n === 'number') c.textContent = n.toLocaleString() + ' waiting';
+      if (joined) {
+        b.setAttribute('aria-pressed','true');
+        b.querySelector('.soon').textContent = "You're on the list";
+      }
+    });
+  }
+  function setNote(text){ document.querySelectorAll('[data-win-note]').forEach(el => el.textContent = text); }
+  fetch(API).then(r => r.ok ? r.json() : null).then(d => d && render(d.waiting)).catch(() => {});
+  render();
+  buttons.forEach(b => b.addEventListener('click', () => {
+    if (joined) return;
+    b.disabled = true;
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voterId: voter }) })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => {
+        joined = true;
+        try { localStorage.setItem('mimoWinJoined','1'); } catch (e) {}
+        render(d.waiting);
+        setNote(d.waiting === 1 ? "You're the first person waiting for Mimo on Windows." : "Thanks! You and " + (d.waiting - 1).toLocaleString() + " other" + (d.waiting === 2 ? "" : "s") + " are waiting for Mimo on Windows.");
+      })
+      .catch(() => setNote("Couldn't reach the server. Please try again in a moment."))
+      .finally(() => { b.disabled = false; });
+  }));
 })();
 </script>
 </body>

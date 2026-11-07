@@ -2,6 +2,8 @@ import SwiftUI
 import ServiceManagement
 import UserNotifications
 
+// MARK: - App
+
 @main
 struct MimoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
@@ -11,25 +13,31 @@ struct MimoApp: App {
             MimoPanel().environmentObject(mimo)
         } label: {
             Image(nsImage: Mimo.menuIcon)
-            Text(mimo.isCleaning ? "cleaning…" : "\(mimo.freeGB)GB")
+            Text(mimo.menuTitle)
         }
         .menuBarExtraStyle(.window)
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     static weak var current: AppDelegate?
     var window: NSWindow?
     func applicationDidFinishLaunching(_ n: Notification) {
         AppDelegate.current = self
-        _ = Mimo.shared
-        showWindow()
+        let mimo = Mimo.shared
+        if mimo.map == nil {
+            showWindow(tab: .places)
+            mimo.runMap(firstTime: true)
+        } else {
+            showWindow()
+        }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         showWindow(); return true
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func showWindow() {
+    func showWindow(tab: MimoTab? = nil) {
+        if let tab { Mimo.shared.tab = tab }
         if window == nil {
             let host = NSHostingController(rootView: MimoPanel().environmentObject(Mimo.shared))
             let w = NSWindow(contentViewController: host)
@@ -55,46 +63,141 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     }
     func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse,
                                 withCompletionHandler done: @escaping () -> Void) {
-        DispatchQueue.main.async { AppDelegate.current?.showWindow() }
+        let cat = r.notification.request.content.categoryIdentifier
+        let tab: MimoTab? = cat == "review" ? .review : cat == "places" ? .places : nil
+        DispatchQueue.main.async { AppDelegate.current?.showWindow(tab: tab) }
         done()
     }
 }
 
+// MARK: - Places Mimo can clean
+
+struct CleanTarget: Identifiable, Codable, Hashable {
+    enum Mode: String, Codable { case contents, olderFiles, installers, nodeModules }
+    var id: String
+    var name: String
+    var icon: String
+    var path: String            // relative to home, or absolute for custom places
+    var mode: Mode
+    var days: Int = 30
+    var defaultOn: Bool = false
+    var custom: Bool = false
+
+    var permanent: Bool { mode == .contents || mode == .nodeModules }
+    var usesDays: Bool { mode != .contents }
+    var detail: String {
+        switch mode {
+        case .contents: return custom ? "Everything inside is deleted permanently." : (id == "bin" ? "Permanently deletes what's in your Bin." : "Deleted. Rebuilds itself when needed.")
+        case .olderFiles: return "Files older than \(days) days move to the Bin."
+        case .installers: return "Installers older than \(days) days move to the Bin."
+        case .nodeModules: return "Deleted in projects untouched for \(days) days. Run npm install to restore."
+        }
+    }
+    func url(_ home: URL) -> URL { path.hasPrefix("/") ? URL(fileURLWithPath: path) : home.appendingPathComponent(path) }
+}
+
+/// Places Mimo recognises on any Mac. Only the ones that exist on this Mac are shown.
+let knownPlaces: [CleanTarget] = [
+    CleanTarget(id: "caches", name: "App caches", icon: "shippingbox.fill", path: "Library/Caches", mode: .contents, defaultOn: true),
+    CleanTarget(id: "whatsapp", name: "Old WhatsApp media", icon: "message.fill", path: "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Message/Media", mode: .olderFiles, days: 30, defaultOn: true),
+    CleanTarget(id: "xcode", name: "Xcode build data", icon: "hammer.fill", path: "Library/Developer/Xcode/DerivedData", mode: .contents, defaultOn: true),
+    CleanTarget(id: "devicesupport", name: "Xcode device support files", icon: "iphone", path: "Library/Developer/Xcode/iOS DeviceSupport", mode: .contents, defaultOn: true),
+    CleanTarget(id: "simcaches", name: "iOS Simulator caches", icon: "ipad.and.iphone", path: "Library/Developer/CoreSimulator/Caches", mode: .contents, defaultOn: true),
+    CleanTarget(id: "archives", name: "Old Xcode archives", icon: "archivebox.fill", path: "Library/Developer/Xcode/Archives", mode: .olderFiles, days: 180),
+    CleanTarget(id: "gradle", name: "Gradle caches", icon: "cube.box.fill", path: ".gradle/caches", mode: .contents, defaultOn: true),
+    CleanTarget(id: "npm", name: "npm cache", icon: "shippingbox", path: ".npm/_cacache", mode: .contents, defaultOn: true),
+    CleanTarget(id: "pub", name: "Flutter / Dart package cache", icon: "bird.fill", path: ".pub-cache/hosted", mode: .contents),
+    CleanTarget(id: "cocoapods", name: "CocoaPods specs", icon: "leaf.fill", path: ".cocoapods/repos", mode: .contents),
+    CleanTarget(id: "slack", name: "Slack cache", icon: "number", path: "Library/Application Support/Slack/Cache", mode: .contents, defaultOn: true),
+    CleanTarget(id: "slacksw", name: "Slack offline storage", icon: "number", path: "Library/Application Support/Slack/Service Worker/CacheStorage", mode: .contents, defaultOn: true),
+    CleanTarget(id: "maildl", name: "Mail attachment copies", icon: "envelope.fill", path: "Library/Containers/com.apple.mail/Data/Library/Mail Downloads", mode: .contents, defaultOn: true),
+    CleanTarget(id: "logs", name: "Old log files", icon: "doc.text.fill", path: "Library/Logs", mode: .olderFiles, days: 30, defaultOn: true),
+    CleanTarget(id: "backups", name: "Old iPhone backups", icon: "iphone.gen3", path: "Library/Application Support/MobileSync/Backup", mode: .olderFiles, days: 180),
+    CleanTarget(id: "installers", name: "Old installers in Downloads", icon: "arrow.down.doc.fill", path: "Downloads", mode: .installers, days: 30),
+    CleanTarget(id: "bin", name: "Empty the Bin", icon: "trash.fill", path: ".Trash", mode: .contents),
+]
+let nodeModulesPlace = CleanTarget(id: "node_modules", name: "node_modules in old projects", icon: "curlybraces", path: "", mode: .nodeModules, days: 60)
+
+// MARK: - Map of the Mac
+
+struct FolderSize: Codable, Identifiable, Hashable { var path: String; var bytes: Int64; var id: String { path } }
+struct FolderNode: Codable, Identifiable { var folder: FolderSize; var children: [FolderSize]; var id: String { folder.path } }
+struct NodeModulesEntry: Codable, Hashable { var path: String; var bytes: Int64; var modified: Date }
+struct MapResult: Codable {
+    var date: Date
+    var folders: Int
+    var files: Int
+    var totalBytes: Int64
+    var tree: [FolderNode]
+    var known: [String: Int64]
+    var nodeModules: [NodeModulesEntry]
+}
+
+struct FoundItem: Identifiable {
+    let id = UUID(); let url: URL; let bytes: Int64
+    var label: String { url.lastPathComponent == "node_modules" ? url.deletingLastPathComponent().lastPathComponent + "/node_modules" : url.lastPathComponent }
+}
+struct Finding: Identifiable {
+    let target: CleanTarget
+    var items: [FoundItem]
+    var id: String { target.id }
+    var bytes: Int64 { items.reduce(0) { $0 + $1.bytes } }
+}
+
+enum MimoTab: String, CaseIterable, Identifiable { case overview = "Overview", review = "Review", places = "Places", settings = "Settings"; var id: String { rawValue } }
+
+func fmt(_ b: Int64) -> String { ByteCountFormatter.string(fromByteCount: b, countStyle: .file) }
+
 // MARK: - Model
 
 struct Activity: Identifiable { let id = UUID(); let time: Date; let icon: String; let text: String }
-struct Target: Identifiable { let id = UUID(); let name: String; let icon: String; let path: String; var bytes: Int64? }
 
 final class Mimo: ObservableObject {
     static let shared = Mimo()
+    private let d = UserDefaults.standard
+
+    // live state
+    @Published var tab: MimoTab = .overview
     @Published var freeGB = 0
     @Published var totalGB = 0
     @Published var isCleaning = false
+    @Published var isScanning = false
     @Published var cleaningStep = ""
     @Published var lastCheck = Date()
     @Published var lastFreed: Int?
     @Published var totalFreed = 0
     @Published var activity: [Activity] = []
-    @Published var targets: [Target] = [
-        Target(name: "App caches", icon: "shippingbox.fill", path: "Library/Caches"),
-        Target(name: "Old WhatsApp media", icon: "message.fill", path: "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Message/Media"),
-        Target(name: "Xcode build data", icon: "hammer.fill", path: "Library/Developer/Xcode/DerivedData"),
-        Target(name: "Gradle caches", icon: "cube.box.fill", path: ".gradle/caches"),
-        Target(name: "npm cache", icon: "shippingbox", path: ".npm/_cacache"),
-    ]
-    @Published var scanning = false
-
-    let limitGB = 15, warnGB = 25
-    @Published var reportMinutes: Int = (UserDefaults.standard.object(forKey: "reportMinutes") as? Int) ?? 30 {
-        didSet { UserDefaults.standard.set(reportMinutes, forKey: "reportMinutes") }
-    }
-    var reportEvery: TimeInterval { TimeInterval(reportMinutes * 60) }
+    @Published var findings: [Finding] = []
+    @Published var pendingReview = false
+    @Published var selected: Set<String> = []
+    @Published var lastReport = Date()
     @Published var notificationsAllowed = true
+
+    // mapping
+    @Published var map: MapResult?
+    @Published var isMapping = false
+    @Published var mapFolders = 0
+    @Published var mapBytes: Int64 = 0
+    @Published var mapCurrent = ""
+
+    // settings
+    @Published var cleanBelowGB: Int { didSet { d.set(cleanBelowGB, forKey: "cleanBelowGB") } }
+    @Published var askFirst: Bool { didSet { d.set(askFirst, forKey: "askFirst") } }
+    @Published var reportMinutes: Int { didSet { d.set(reportMinutes, forKey: "reportMinutes") } }
+    @Published var enabled: [String: Bool] { didSet { d.set(enabled, forKey: "enabledTargets") } }
+    @Published var daysOverride: [String: Int] { didSet { d.set(daysOverride, forKey: "daysOverride") } }
+    @Published var customPlaces: [CleanTarget] { didSet { d.set(try? JSONEncoder().encode(customPlaces), forKey: "customPlaces") } }
+    @Published var countInstall: Bool { didSet { d.set(countInstall, forKey: "countInstall") } }
+
+    var warnGB: Int { cleanBelowGB + 10 }
+    var reportEvery: TimeInterval { TimeInterval(reportMinutes * 60) }
+
     let home = FileManager.default.homeDirectoryForCurrentUser
     var logURL: URL { home.appendingPathComponent("Library/Logs/mimo.log") }
+    var mapURL: URL { home.appendingPathComponent("Library/Application Support/Mimo/map.json") }
     private var timer: Timer?
-    @Published var lastReport = Date()
     private var warned = false
+    private var lastReviewNudge = Date.distantPast
     private var useNative = false
 
     static let menuIcon: NSImage = {
@@ -105,6 +208,21 @@ final class Mimo: ObservableObject {
     static let faceIcon: NSImage = Bundle.main.url(forResource: "mimo", withExtension: "png").flatMap { NSImage(contentsOf: $0) } ?? NSApp.applicationIconImage
 
     init() {
+        cleanBelowGB = (d.object(forKey: "cleanBelowGB") as? Int) ?? 15
+        askFirst = (d.object(forKey: "askFirst") as? Bool) ?? true
+        reportMinutes = (d.object(forKey: "reportMinutes") as? Int) ?? 30
+        enabled = (d.dictionary(forKey: "enabledTargets") as? [String: Bool]) ?? [:]
+        var days = (d.dictionary(forKey: "daysOverride") as? [String: Int]) ?? [:]
+        if days["whatsapp"] == nil, let old = d.object(forKey: "whatsappDays") as? Int { days["whatsapp"] = old }
+        if days["installers"] == nil, let old = d.object(forKey: "installerDays") as? Int { days["installers"] = old }
+        daysOverride = days
+        countInstall = (d.object(forKey: "countInstall") as? Bool) ?? true
+        customPlaces = (d.data(forKey: "customPlaces").flatMap { try? JSONDecoder().decode([CleanTarget].self, from: $0) }) ?? []
+        map = (try? Data(contentsOf: mapURL)).flatMap { data in
+            let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+            return try? dec.decode(MapResult.self, from: data)
+        }
+
         try? SMAppService.mainApp.register()
         readDisk()
         add("pawprint.fill", "Mimo started — watching every minute")
@@ -116,18 +234,104 @@ final class Mimo: ObservableObject {
                 self.notify("Woof! Mimo is on duty 🐶 You have \(self.freeGB) GB free. I'll check every minute.")
             }
         }
-        check()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.check() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.check() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.reportInstallIfNeeded() }
     }
 
+    // MARK: install count
+    // Sends one anonymous ping the first time Mimo runs on a Mac: a random ID made here, the app version,
+    // the macOS version and the chip type. No names, files or folder information ever leave the Mac.
+
+    static let backend = URL(string: "https://mimo.techtree.lifestyle/v1/installs")!
+    private var lastInstallAttempt = Date.distantPast
+
+    func reportInstallIfNeeded() {
+        guard countInstall, !d.bool(forKey: "installReported"),
+              Date().timeIntervalSince(lastInstallAttempt) > 3600 else { return }
+        lastInstallAttempt = Date()
+        let id = d.string(forKey: "installId") ?? {
+            let new = UUID().uuidString.lowercased(); d.set(new, forKey: "installId"); return new
+        }()
+        #if arch(arm64)
+        let arch = "arm64"
+        #else
+        let arch = "x86_64"
+        #endif
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        let body: [String: String] = [
+            "installId": id,
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            "osVersion": "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)",
+            "arch": arch,
+        ]
+        var req = URLRequest(url: Mimo.backend, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: req) { _, resp, _ in
+            guard let code = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) else { return }
+            DispatchQueue.main.async {
+                self.d.set(true, forKey: "installReported")
+                self.log("Install counted anonymously")
+            }
+        }.resume()
+    }
+
+    // MARK: places
+
+    /// Every place Mimo could clean on this Mac: recognised places that exist, project node_modules, and your own places.
+    var allPlaces: [CleanTarget] {
+        let fm = FileManager.default
+        var list = knownPlaces.filter { fm.fileExists(atPath: $0.url(home).path) }
+        if let m = map, !m.nodeModules.isEmpty { list.append(nodeModulesPlace) }
+        list += customPlaces
+        return list.map { t in var t = t; if let dd = daysOverride[t.id] { t.days = dd }; return t }
+    }
+    var enabledTargets: [CleanTarget] { allPlaces.filter { isOn($0) } }
+    func isOn(_ t: CleanTarget) -> Bool { enabled[t.id] ?? (t.custom ? true : t.defaultOn) }
+    func setOn(_ t: CleanTarget, _ on: Bool) { enabled[t.id] = on; findings.removeAll { $0.id == t.id }; selected.remove(t.id) }
+    func setDays(_ t: CleanTarget, _ v: Int) { daysOverride[t.id] = v; findings.removeAll { $0.id == t.id } }
+    func days(_ t: CleanTarget) -> Int { daysOverride[t.id] ?? t.days }
+    func knownSize(_ t: CleanTarget) -> Int64? {
+        if t.mode == .nodeModules { return map?.nodeModules.reduce(0) { $0 + $1.bytes } }
+        return map?.known[t.id]
+    }
+
+    func addCustomPlace(path: String, clearEverything: Bool) {
+        let id = "custom:" + path
+        guard !customPlaces.contains(where: { $0.id == id }) else { return }
+        let name = (path as NSString).lastPathComponent
+        customPlaces.append(CleanTarget(id: id, name: name, icon: "folder.fill", path: path,
+                                        mode: clearEverything ? .contents : .olderFiles, days: 30, defaultOn: true, custom: true))
+        enabled[id] = true
+        add("plus.circle.fill", "Added \(name) to my cleaning places")
+    }
+    func removeCustomPlace(_ t: CleanTarget) {
+        customPlaces.removeAll { $0.id == t.id }
+        enabled[t.id] = nil; findings.removeAll { $0.id == t.id }; selected.remove(t.id)
+        add("minus.circle", "Removed \(t.name) from my cleaning places")
+    }
+    func isCustom(path: String) -> Bool { customPlaces.contains { $0.path == path } }
+    /// Folders that a recognised place already covers, so the biggest-folders list doesn't double up.
+    func coveredByKnown(_ path: String) -> CleanTarget? {
+        allPlaces.first { !$0.custom && $0.mode != .nodeModules && !$0.path.isEmpty && $0.url(home).path == path }
+    }
+
+    // MARK: state
+
     var usedFraction: Double { totalGB == 0 ? 0 : Double(totalGB - freeGB) / Double(totalGB) }
+    var menuTitle: String { isCleaning ? "cleaning…" : isMapping ? "mapping…" : pendingReview ? "\(freeGB)GB •" : "\(freeGB)GB" }
     var mood: (text: String, color: Color, emoji: String) {
+        if isMapping { return ("Mapping your Mac", .teal, "🗺️") }
         if isCleaning { return ("Cleaning up for you", .blue, "🧹") }
-        if freeGB < limitGB { return ("Running low", .red, "😟") }
+        if pendingReview { return ("Waiting for your OK", .purple, "🐾") }
+        if freeGB < cleanBelowGB { return ("Running low", .red, "😟") }
         if freeGB < warnGB { return ("Getting tight", .orange, "👀") }
         return ("All good", .green, "😊")
     }
-
+    var selectedBytes: Int64 { findings.filter { selected.contains($0.id) }.reduce(0) { $0 + $1.bytes } }
+    var foundBytes: Int64 { findings.reduce(0) { $0 + $1.bytes } }
     var nextReportText: String {
         let secs = max(0, Int(reportEvery - Date().timeIntervalSince(lastReport)))
         return secs >= 3600 ? "\(secs/3600)h \((secs%3600)/60)m" : "\(max(1, secs/60)) min"
@@ -141,18 +345,32 @@ final class Mimo: ObservableObject {
 
     func add(_ icon: String, _ text: String) {
         activity.insert(Activity(time: Date(), icon: icon, text: text), at: 0)
-        if activity.count > 30 { activity.removeLast() }
+        if activity.count > 40 { activity.removeLast() }
         log(text)
     }
+
+    // MARK: watching
 
     func check(manual: Bool = false) {
         readDisk(); lastCheck = Date()
         if manual { add("magnifyingglass", "Checked: \(freeGB) GB free") }
-        if freeGB < limitGB && !isCleaning { clean(manual: false); return }
+        reportInstallIfNeeded()
+        if let m = map, Date().timeIntervalSince(m.date) > 7 * 86_400, !isMapping, !isCleaning { runMap(firstTime: false) }
+        if freeGB < cleanBelowGB && !isCleaning && !isScanning {
+            if askFirst {
+                if !pendingReview { prepareReview(reason: .lowSpace) }
+                else if Date().timeIntervalSince(lastReviewNudge) >= reportEvery { nudgeReview() }
+            } else {
+                add("exclamationmark.triangle.fill", "Low on space (\(freeGB) GB) — started cleaning")
+                notify("Only \(freeGB) GB left — fetching the broom 🧹")
+                scan { self.clean(ids: Set(self.findings.map { $0.id })) }
+            }
+            return
+        }
         if freeGB < warnGB && !warned {
             warned = true
             add("exclamationmark.triangle.fill", "Space getting tight: \(freeGB) GB")
-            notify("Heads up: only \(freeGB) GB left. I'll start cleaning at \(limitGB) GB.")
+            notify("Heads up: only \(freeGB) GB left. I'll \(askFirst ? "ask you about cleaning" : "start cleaning") at \(cleanBelowGB) GB.")
         } else if freeGB >= warnGB { warned = false }
         if Date().timeIntervalSince(lastReport) >= reportEvery { report() }
     }
@@ -165,10 +383,11 @@ final class Mimo: ObservableObject {
 
     func friendlyLine() -> String {
         let f = freeGB
-        if f < limitGB { return "Ruff… only \(f) GB left 😟 I'm on it!" }
+        if pendingReview { return "Psst 🐾 I've got \(fmt(foundBytes)) ready to clean. Click to review." }
+        if f < cleanBelowGB { return "Ruff… only \(f) GB left 😟" }
         if f < warnGB {
             return ["Sniff sniff 👀 \(f) GB free — getting a bit tight, I'm watching closely.",
-                    "Heads up, friend: \(f) GB left. I'll clean at \(limitGB) GB 🧹",
+                    "Heads up, friend: \(f) GB left. I'll step in at \(cleanBelowGB) GB 🧹",
                     "Ears up 🐕 \(f) GB free. Not panicking yet, but I'm close by."].randomElement()!
         }
         return ["Woof! 🐶 Still on patrol — \(f) GB free. All good!",
@@ -179,44 +398,235 @@ final class Mimo: ObservableObject {
                 "Sniffed every corner 👃 \(f) GB free — all clear."].randomElement()!
     }
 
-    func scan() {
-        guard !scanning else { return }
-        scanning = true
-        let snapshot = targets
+    // MARK: mapping the Mac
+
+    func runMap(firstTime: Bool) {
+        guard !isMapping else { return }
+        isMapping = true; mapFolders = 0; mapBytes = 0; mapCurrent = ""
+        add("map.fill", firstTime ? "Mapping your Mac for the first time" : "Refreshing my map of your Mac")
+        if firstTime { notify("Hi, I'm Mimo 🐶 I'm sniffing through your folders to learn where space goes. This takes a few minutes.") }
+        let home = self.home
+        let places = knownPlaces
         DispatchQueue.global(qos: .utility).async {
-            var out = snapshot
-            for i in out.indices {
-                let isWA = out[i].path.contains("WhatsApp")
-                out[i].bytes = self.size(of: self.home.appendingPathComponent(out[i].path), olderThanDays: isWA ? 30 : nil)
+            let fm = FileManager.default
+            let rootCount = home.pathComponents.count
+            var sizes: [String: Int64] = [:]
+            var folders = 0, files = 0
+            var total: Int64 = 0
+            var nm: [NodeModulesEntry] = []
+            var lastPost = Date()
+            let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .totalFileAllocatedSizeKey, .contentModificationDateKey]
+
+            func addUp(_ dir: URL, _ bytes: Int64) {
+                let comps = dir.pathComponents
+                let depth = comps.count - rootCount
+                guard depth >= 1 else { return }
+                for level in 1...min(2, depth) {
+                    sizes[NSString.path(withComponents: Array(comps.prefix(rootCount + level))), default: 0] += bytes
+                }
             }
-            DispatchQueue.main.async { self.targets = out; self.scanning = false }
+
+            guard let e = fm.enumerator(at: home, includingPropertiesForKeys: keys, options: [], errorHandler: { _, _ in true }) else {
+                DispatchQueue.main.async { self.isMapping = false }
+                return
+            }
+            for case let url as URL in e {
+                guard let r = try? url.resourceValues(forKeys: Set(keys)), r.isSymbolicLink != true else { continue }
+                if r.isDirectory == true {
+                    folders += 1
+                    if url.lastPathComponent == "node_modules" {
+                        let s = self.size(of: url)
+                        nm.append(NodeModulesEntry(path: url.path, bytes: s, modified: r.contentModificationDate ?? Date()))
+                        total += s; addUp(url, s)
+                        e.skipDescendants()
+                    }
+                    if Date().timeIntervalSince(lastPost) > 0.25 {
+                        lastPost = Date()
+                        let f = folders, t = total, p = url.path.replacingOccurrences(of: home.path, with: "~")
+                        DispatchQueue.main.async { self.mapFolders = f; self.mapBytes = t; self.mapCurrent = p }
+                    }
+                } else if r.isRegularFile == true {
+                    files += 1
+                    let s = Int64(r.totalFileAllocatedSize ?? 0)
+                    total += s
+                    addUp(url.deletingLastPathComponent(), s)
+                }
+            }
+
+            // tree: top-level folders, each with its biggest sub-folders
+            let top = sizes.filter { URL(fileURLWithPath: $0.key).pathComponents.count == rootCount + 1 }
+                .sorted { $0.value > $1.value }.prefix(14)
+            let tree: [FolderNode] = top.map { (p, b) in
+                let kids = sizes.filter { URL(fileURLWithPath: $0.key).deletingLastPathComponent().path == p }
+                    .sorted { $0.value > $1.value }.prefix(10)
+                    .map { FolderSize(path: $0.key, bytes: $0.value) }
+                return FolderNode(folder: FolderSize(path: p, bytes: b), children: Array(kids))
+            }.filter { $0.folder.bytes > 50_000_000 }
+
+            var known: [String: Int64] = [:]
+            for t in places where fm.fileExists(atPath: t.url(home).path) { known[t.id] = self.size(of: t.url(home)) }
+
+            let result = MapResult(date: Date(), folders: folders, files: files, totalBytes: total, tree: tree,
+                                   known: known, nodeModules: nm.sorted { $0.bytes > $1.bytes })
+            let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+            try? fm.createDirectory(at: self.mapURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? enc.encode(result).write(to: self.mapURL)
+
+            DispatchQueue.main.async {
+                self.map = result
+                self.isMapping = false
+                let cleanable = known.values.reduce(0, +) + nm.reduce(0) { $0 + $1.bytes }
+                self.add("checkmark.seal.fill", "Mapped \(folders.formatted()) folders, \(fmt(total)) in total")
+                if firstTime {
+                    self.notify("Done mapping 🗺️ I found up to \(fmt(cleanable)) I could look after. Pick the places you want me to clean.", category: "places")
+                }
+                self.scan()
+            }
         }
     }
 
-    private func size(of url: URL, olderThanDays days: Double?) -> Int64 {
-        let cutoff = days.map { Date().addingTimeInterval(-$0 * 86_400) }
-        guard let e = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .contentModificationDateKey, .isRegularFileKey]) else { return 0 }
+    // MARK: review flow
+
+    enum ReviewReason { case lowSpace, manual }
+
+    func prepareReview(reason: ReviewReason) {
+        scan {
+            guard !self.findings.isEmpty else {
+                self.add("checkmark.circle", "Looked for things to clean — found nothing")
+                if reason == .manual { self.notify("I sniffed around and found nothing to clean 🐶") }
+                return
+            }
+            self.selected = Set(self.findings.map { $0.id })
+            self.pendingReview = true
+            self.add("tray.full.fill", "Found \(fmt(self.foundBytes)) to clean — waiting for your OK")
+            if reason == .lowSpace {
+                self.lastReviewNudge = Date()
+                self.notify("Only \(self.freeGB) GB left. I found \(fmt(self.foundBytes)) I can clean — click to review 🐾", category: "review")
+            } else {
+                self.tab = .review
+            }
+        }
+    }
+
+    func nudgeReview() {
+        lastReviewNudge = Date(); lastReport = Date()
+        notify("Still waiting on you 🐾 \(fmt(foundBytes)) is ready to clean and you have \(freeGB) GB free.", category: "review")
+    }
+
+    func cleanNow() {
+        if askFirst { prepareReview(reason: .manual) }
+        else {
+            add("sparkles", "You asked me to clean up")
+            notify("On it! Cleaning up now… 🧹")
+            scan { self.clean(ids: Set(self.findings.map { $0.id })) }
+        }
+    }
+
+    func approve() {
+        let ids = selected
+        pendingReview = false
+        add("hand.thumbsup.fill", "You approved \(fmt(selectedBytes)) for cleaning")
+        clean(ids: ids)
+    }
+
+    func dismissReview() {
+        pendingReview = false
+        add("hand.raised.fill", "You said not now — I'll ask again if space stays low")
+        lastReviewNudge = Date()
+        tab = .overview
+    }
+
+    // MARK: scanning
+
+    func scan(then: (() -> Void)? = nil) {
+        guard !isScanning else { return }
+        isScanning = true
+        let targets = enabledTargets
+        let nm = map?.nodeModules ?? []
+        DispatchQueue.global(qos: .utility).async {
+            var out: [Finding] = []
+            for t in targets {
+                let items = self.items(for: t, nodeModules: nm)
+                if !items.isEmpty { out.append(Finding(target: t, items: items.sorted { $0.bytes > $1.bytes })) }
+            }
+            DispatchQueue.main.async {
+                self.findings = out
+                self.selected = self.selected.intersection(Set(out.map { $0.id }))
+                self.isScanning = false
+                then?()
+            }
+        }
+    }
+
+    private func items(for t: CleanTarget, nodeModules: [NodeModulesEntry]) -> [FoundItem] {
+        let fm = FileManager.default
+        let root = t.url(home)
+        let cutoff = Date().addingTimeInterval(-Double(t.days) * 86_400)
+        switch t.mode {
+        case .contents:
+            let kids = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+            return kids.filter { !$0.lastPathComponent.lowercased().contains("mimo") && $0.lastPathComponent != ".DS_Store" }
+                .map { FoundItem(url: $0, bytes: size(of: $0)) }
+                .filter { $0.bytes > 0 }
+        case .olderFiles:
+            var out: [FoundItem] = []
+            let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .contentModificationDateKey, .isRegularFileKey]
+            guard let e = fm.enumerator(at: root, includingPropertiesForKeys: Array(keys)) else { return [] }
+            for case let f as URL in e {
+                guard !f.lastPathComponent.lowercased().contains("mimo"),
+                      let r = try? f.resourceValues(forKeys: keys),
+                      r.isRegularFile == true, let dd = r.contentModificationDate, dd < cutoff else { continue }
+                out.append(FoundItem(url: f, bytes: Int64(r.totalFileAllocatedSize ?? 0)))
+            }
+            return out
+        case .installers:
+            let exts: Set<String> = ["dmg", "pkg", "zip", "iso", "xip"]
+            let kids = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey])) ?? []
+            return kids.compactMap { f in
+                guard exts.contains(f.pathExtension.lowercased()),
+                      let r = try? f.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
+                      r.isRegularFile == true, let dd = r.contentModificationDate, dd < cutoff else { return nil }
+                return FoundItem(url: f, bytes: size(of: f))
+            }
+        case .nodeModules:
+            return nodeModules.compactMap { n in
+                let u = URL(fileURLWithPath: n.path)
+                guard fm.fileExists(atPath: n.path) else { return nil }
+                let mod = (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? n.modified
+                guard mod < cutoff else { return nil }
+                return FoundItem(url: u, bytes: n.bytes)
+            }
+        }
+    }
+
+    func size(of url: URL) -> Int64 {
+        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .isRegularFileKey]
+        if let r = try? url.resourceValues(forKeys: keys), r.isRegularFile == true { return Int64(r.totalFileAllocatedSize ?? 0) }
+        guard let e = FileManager.default.enumerator(at: url, includingPropertiesForKeys: Array(keys), options: [], errorHandler: { _, _ in true }) else { return 0 }
         var total: Int64 = 0
         for case let f as URL in e {
-            guard let r = try? f.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .contentModificationDateKey, .isRegularFileKey]), r.isRegularFile == true else { continue }
-            if let c = cutoff, let d = r.contentModificationDate, d >= c { continue }
-            total += Int64(r.totalFileAllocatedSize ?? 0)
+            if let r = try? f.resourceValues(forKeys: keys), r.isRegularFile == true { total += Int64(r.totalFileAllocatedSize ?? 0) }
         }
         return total
     }
 
-    func clean(manual: Bool) {
+    // MARK: cleaning
+
+    func clean(ids: Set<String>) {
         guard !isCleaning else { return }
+        let work = findings.filter { ids.contains($0.id) }
+        guard !work.isEmpty else { add("checkmark.circle", "Nothing to clean"); return }
         isCleaning = true
+        tab = .overview
         let before = freeGB
-        add("sparkles", manual ? "You asked me to clean up" : "Low on space (\(before) GB) — started cleaning")
-        notify(manual ? "On it! Cleaning up now… 🧹" : "Only \(before) GB left — fetching the broom 🧹")
-        let list = targets
         DispatchQueue.global(qos: .utility).async {
-            for t in list {
-                DispatchQueue.main.async { self.cleaningStep = "Clearing \(t.name.lowercased())…" }
-                if t.path.contains("WhatsApp") { self.trashOldFiles(in: t.path, olderThanDays: 30) }
-                else { self.emptyFolder(t.path) }
+            let fm = FileManager.default
+            for f in work {
+                DispatchQueue.main.async { self.cleaningStep = "Clearing \(f.target.name.lowercased())…" }
+                for item in f.items {
+                    if f.target.permanent { try? fm.removeItem(at: item.url) }
+                    else { try? fm.trashItem(at: item.url, resultingItemURL: nil) }
+                }
             }
             DispatchQueue.main.async {
                 self.readDisk()
@@ -224,28 +634,17 @@ final class Mimo: ObservableObject {
                 self.lastFreed = freed; self.totalFreed += freed
                 self.isCleaning = false; self.cleaningStep = ""
                 self.lastReport = Date()
-                self.add("checkmark.seal.fill", "Cleaned up — freed \(freed) GB")
+                self.findings.removeAll { ids.contains($0.id) }
+                self.selected = []
+                let names = work.map { $0.target.name.lowercased() }.joined(separator: ", ")
+                self.add("checkmark.seal.fill", "Cleaned \(names) — freed \(freed) GB")
                 self.notify("Good boy report 🐾 Freed \(freed) GB — you now have \(self.freeGB) GB free.")
                 self.scan()
             }
         }
     }
 
-    private func emptyFolder(_ rel: String) {
-        let url = home.appendingPathComponent(rel)
-        let items = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
-        for item in items where !item.lastPathComponent.lowercased().contains("mimo") { try? FileManager.default.removeItem(at: item) }
-    }
-
-    private func trashOldFiles(in rel: String, olderThanDays days: Double) {
-        let url = home.appendingPathComponent(rel)
-        let cutoff = Date().addingTimeInterval(-days * 86_400)
-        guard let e = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey]) else { return }
-        for case let f as URL in e {
-            let r = try? f.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            if r?.isRegularFile == true, let d = r?.contentModificationDate, d < cutoff { try? FileManager.default.trashItem(at: f, resultingItemURL: nil) }
-        }
-    }
+    // MARK: notifications + log
 
     func refreshPermission() {
         UNUserNotificationCenter.current().getNotificationSettings { st in
@@ -259,10 +658,14 @@ final class Mimo: ObservableObject {
     func openNotificationSettings() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
     }
+    func openFullDiskAccessSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+    }
 
-    func notify(_ msg: String) {
+    func notify(_ msg: String, category: String? = nil) {
         if useNative {
             let c = UNMutableNotificationContent(); c.title = "Mimo 🐶"; c.body = msg; c.sound = .default
+            if let category { c.categoryIdentifier = category }
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
         } else {
             let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -271,7 +674,7 @@ final class Mimo: ObservableObject {
         }
     }
 
-    private func log(_ line: String) {
+    func log(_ line: String) {
         let text = "\(Date()): \(line)\n"
         if let h = try? FileHandle(forWritingTo: logURL) { h.seekToEndOfFile(); h.write(text.data(using: .utf8)!); h.closeFile() }
         else { try? text.write(to: logURL, atomically: true, encoding: .utf8) }
@@ -283,18 +686,27 @@ final class Mimo: ObservableObject {
 struct MimoPanel: View {
     @EnvironmentObject var mimo: Mimo
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             header
-            gauge
-            if mimo.isCleaning { cleaningBanner }
-            cleanables
-            activityFeed
-            notifyCard
-            footer
+            Picker("", selection: $mimo.tab) {
+                ForEach(MimoTab.allCases) { t in
+                    Text(t == .review && mimo.pendingReview ? "Review •" : t.rawValue).tag(t)
+                }
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            Group {
+                switch mimo.tab {
+                case .overview: OverviewTab()
+                case .review: ReviewTab()
+                case .places: PlacesTab()
+                case .settings: SettingsTab()
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .padding(16)
-        .frame(width: 340)
-        .onAppear { mimo.readDisk(); mimo.scan() }
+        .frame(width: 400, height: 660)
+        .onAppear { mimo.readDisk(); if mimo.findings.isEmpty && !mimo.isMapping { mimo.scan() }; mimo.refreshPermission() }
     }
 
     var header: some View {
@@ -311,6 +723,48 @@ struct MimoPanel: View {
             Text("checked \(mimo.lastCheck, style: .relative) ago").font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.trailing)
         }
     }
+}
+
+struct OverviewTab: View {
+    @EnvironmentObject var mimo: Mimo
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            gauge
+            if mimo.isMapping { banner("Mapping your Mac… \(mimo.mapFolders.formatted()) folders so far", .teal) }
+            else if mimo.isCleaning { banner(mimo.cleaningStep.isEmpty ? "Cleaning…" : mimo.cleaningStep, .blue) }
+            else if mimo.pendingReview {
+                HStack {
+                    Image(systemName: "tray.full.fill").foregroundStyle(.purple)
+                    Text("\(fmt(mimo.foundBytes)) is waiting for your OK").font(.callout)
+                    Spacer()
+                    Button("Review") { mimo.tab = .review }.controlSize(.small)
+                }
+                .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.purple.opacity(0.12)))
+            }
+            cleanables
+            activityFeed
+            Spacer(minLength: 0)
+            HStack {
+                Button { mimo.cleanNow() } label: { Label(mimo.askFirst ? "Find things to clean" : "Clean now", systemImage: "sparkles") }
+                    .buttonStyle(.borderedProminent).disabled(mimo.isCleaning || mimo.isScanning)
+                Button { mimo.check(manual: true); mimo.report() } label: { Label("Check", systemImage: "arrow.clockwise") }
+                Spacer()
+                Menu {
+                    Button("Open Mimo window") { AppDelegate.current?.showWindow() }
+                    Button("Open log") { NSWorkspace.shared.open(mimo.logURL) }
+                    Divider()
+                    Button("Quit Mimo") { NSApp.terminate(nil) }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).fixedSize()
+            }
+        }
+    }
+
+    func banner(_ text: String, _ color: Color) -> some View {
+        HStack(spacing: 8) { ProgressView().controlSize(.small); Text(text).font(.callout) }
+            .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.12)))
+    }
 
     var gauge: some View {
         HStack(spacing: 16) {
@@ -324,12 +778,12 @@ struct MimoPanel: View {
                     Text("\(mimo.freeGB)").font(.system(size: 24, weight: .bold, design: .rounded))
                     Text("GB free").font(.caption2).foregroundStyle(.secondary)
                 }
-            }.frame(width: 92, height: 92)
+            }.frame(width: 88, height: 88)
             VStack(alignment: .leading, spacing: 6) {
                 stat("internaldrive", "\(mimo.totalGB - mimo.freeGB) of \(mimo.totalGB) GB used")
-                stat("trash.circle", "Cleans below \(mimo.limitGB) GB")
-                stat("arrow.down.circle", mimo.lastFreed.map { "Last clean freed \($0) GB" } ?? "No cleans yet")
-                stat("star.fill", "\(mimo.totalFreed) GB freed this session")
+                stat("trash.circle", "Steps in below \(mimo.cleanBelowGB) GB")
+                stat(mimo.askFirst ? "hand.raised" : "bolt", mimo.askFirst ? "Asks before deleting" : "Cleans automatically")
+                stat("mappin.and.ellipse", "Looking after \(mimo.enabledTargets.count) places")
             }
         }
         .padding(12)
@@ -340,31 +794,30 @@ struct MimoPanel: View {
         Label { Text(text).font(.caption) } icon: { Image(systemName: icon).foregroundStyle(.secondary).frame(width: 14) }
     }
 
-    var cleaningBanner: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text(mimo.cleaningStep.isEmpty ? "Cleaning…" : mimo.cleaningStep).font(.callout)
-        }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.blue.opacity(0.12)))
-    }
-
     var cleanables: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("What I can clean").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("Ready to clean now").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
-                if mimo.scanning { ProgressView().controlSize(.mini) }
+                if mimo.isScanning { ProgressView().controlSize(.mini) }
+                Button("Change places") { mimo.tab = .places }.buttonStyle(.link).font(.caption)
             }
-            ForEach(mimo.targets) { t in
-                HStack {
-                    Image(systemName: t.icon).foregroundStyle(.blue).frame(width: 18)
-                    Text(t.name).font(.callout)
-                    Spacer()
-                    Text(t.bytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—")
-                        .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            if mimo.enabledTargets.isEmpty {
+                Text("I'm not looking after any places yet. Pick some in Places.").font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                VStack(spacing: 5) {
+                    ForEach(mimo.enabledTargets) { t in
+                        HStack {
+                            Image(systemName: t.icon).foregroundStyle(.blue).frame(width: 18)
+                            Text(t.name).font(.callout).lineLimit(1)
+                            Spacer()
+                            Text(mimo.findings.first { $0.id == t.id }.map { fmt($0.bytes) } ?? (mimo.isScanning ? "…" : "Zero KB"))
+                                .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                    }
                 }
-            }
+            }.frame(maxHeight: 150)
         }
     }
 
@@ -382,51 +835,312 @@ struct MimoPanel: View {
                         }
                     }
                 }
-            }.frame(height: 110)
+            }.frame(maxHeight: 110)
         }
     }
+}
 
-    var notifyCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "bell.badge.fill").foregroundStyle(.blue)
-                Text("Check in with me every").font(.callout)
+struct ReviewTab: View {
+    @EnvironmentObject var mimo: Mimo
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if mimo.isScanning {
+                HStack { ProgressView().controlSize(.small); Text("Sniffing around for things to clean…").font(.callout) }
                 Spacer()
-                Picker("", selection: $mimo.reportMinutes) {
-                    Text("15 min").tag(15); Text("30 min").tag(30); Text("1 hour").tag(60); Text("3 hours").tag(180)
-                }.labelsHidden().fixedSize()
-            }
-            HStack {
-                Button("Send a test notification") { mimo.report() }.controlSize(.small)
+            } else if mimo.findings.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Nothing waiting for review").font(.headline)
+                    Text("When space runs low I'll gather everything I want to remove here, so you can choose what goes.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Button { mimo.prepareReview(reason: .manual) } label: { Label("Look for things to clean", systemImage: "magnifyingglass") }
+                }
                 Spacer()
-                Text("Next in \(mimo.nextReportText)").font(.caption2).foregroundStyle(.tertiary)
-            }
-            if !mimo.notificationsAllowed {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text("Notifications are off for Mimo").font(.caption)
+            } else {
+                Text(mimo.pendingReview ? "I'd like to clean these. Untick anything you want to keep." : "Here's what I can clean right now. Tick what should go.")
+                    .font(.callout).foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(mimo.findings) { f in findingRow(f) }
+                    }
+                }
+                Divider()
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(fmt(mimo.selectedBytes)) selected").font(.callout.weight(.semibold))
+                        Text("\(mimo.selected.count) of \(mimo.findings.count) groups").font(.caption).foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Button("Turn on") { mimo.openNotificationSettings() }.controlSize(.small)
+                    Button("Not now") { mimo.dismissReview() }
+                    Button { mimo.approve() } label: { Text("Clean selected") }
+                        .buttonStyle(.borderedProminent).disabled(mimo.selected.isEmpty || mimo.isCleaning)
                 }
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.08)))
-        .onAppear { mimo.refreshPermission() }
     }
 
-    var footer: some View {
-        HStack {
-            Button { mimo.clean(manual: true) } label: { Label("Clean now", systemImage: "sparkles") }
-                .buttonStyle(.borderedProminent).disabled(mimo.isCleaning)
-            Button { mimo.check(manual: true); mimo.report() } label: { Label("Check", systemImage: "arrow.clockwise") }
-            Spacer()
-            Menu {
-                Button("Open Mimo window") { AppDelegate.current?.showWindow() }
-                Button("Open log") { NSWorkspace.shared.open(mimo.logURL) }
-                Button("Quit Mimo") { NSApp.terminate(nil) }
-            } label: { Image(systemName: "ellipsis.circle") }
-            .menuStyle(.borderlessButton).fixedSize()
+    func findingRow(_ f: Finding) -> some View {
+        let on = Binding(get: { mimo.selected.contains(f.id) },
+                         set: { if $0 { mimo.selected.insert(f.id) } else { mimo.selected.remove(f.id) } })
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                Toggle(isOn: on) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(f.target.name, systemImage: f.target.icon).font(.callout.weight(.medium))
+                        Text("\(f.items.count) item\(f.items.count == 1 ? "" : "s") · \(f.target.permanent ? "deleted permanently" : "moved to the Bin")")
+                            .font(.caption).foregroundStyle(f.target.permanent ? Color.orange : Color.secondary)
+                    }
+                }.toggleStyle(.checkbox)
+                Spacer()
+                Text(fmt(f.bytes)).font(.callout.monospacedDigit())
+            }
+            DisclosureGroup("Biggest items") {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(f.items.prefix(8)) { i in
+                        HStack {
+                            Text(i.label).font(.caption).lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Text(fmt(i.bytes)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        .help(i.url.path)
+                        .contextMenu { Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([i.url]) } }
+                    }
+                    if f.items.count > 8 { Text("and \(f.items.count - 8) more").font(.caption2).foregroundStyle(.tertiary) }
+                }
+                .padding(.top, 4)
+            }
+            .font(.caption)
+            .padding(.leading, 22)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.07)))
+    }
+}
+
+struct PlacesTab: View {
+    @EnvironmentObject var mimo: Mimo
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                mapCard
+                if mimo.map != nil || !mimo.allPlaces.isEmpty {
+                    section("Places I recognise", "Safe spots that fill up over time. Ticked ones are mine to look after.") {
+                        let rec = mimo.allPlaces.filter { !$0.custom }
+                            .sorted { (mimo.knownSize($0) ?? 0) > (mimo.knownSize($1) ?? 0) }
+                        ForEach(rec) { t in placeRow(t) }
+                    }
+                }
+                if !mimo.customPlaces.isEmpty {
+                    section("Your places", "Folders you added yourself.") {
+                        ForEach(mimo.allPlaces.filter { $0.custom }) { t in placeRow(t, removable: true) }
+                    }
+                }
+                if let m = mimo.map, !m.tree.isEmpty {
+                    section("Where your space goes", "Your biggest folders. Add any of them as a place for me to clean.") {
+                        ForEach(m.tree) { node in folderNode(node, total: m.totalBytes) }
+                    }
+                }
+            }
+            .padding(.trailing, 6)
+        }
+    }
+
+    var mapCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if mimo.isMapping {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Mapping your Mac…").font(.callout.weight(.semibold))
+                    Spacer()
+                    Text(fmt(mimo.mapBytes)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Text("\(mimo.mapFolders.formatted()) folders checked").font(.caption).foregroundStyle(.secondary)
+                Text(mimo.mapCurrent).font(.caption2.monospaced()).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+            } else if let m = mimo.map {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("I've mapped \(m.folders.formatted()) folders").font(.callout.weight(.semibold))
+                        Text("\(fmt(m.totalBytes)) in your home folder · updated \(m.date, style: .relative) ago").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Map again") { mimo.runMap(firstTime: false) }.controlSize(.small)
+                }
+            } else {
+                Text("Let me map your Mac").font(.callout.weight(.semibold))
+                Text("I'll look through every folder in your home folder to learn where your space goes. Nothing is deleted.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button { mimo.runMap(firstTime: true) } label: { Label("Start mapping", systemImage: "map") }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+            }
+            HStack(spacing: 4) {
+                Image(systemName: "lock.shield").foregroundStyle(.secondary)
+                Text("For a full map, give Mimo Full Disk Access.").font(.caption2).foregroundStyle(.secondary)
+                Button("Open settings") { mimo.openFullDiskAccessSettings() }.buttonStyle(.link).font(.caption2)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.teal.opacity(0.10)))
+    }
+
+    func placeRow(_ t: CleanTarget, removable: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top) {
+                Toggle(isOn: Binding(get: { mimo.isOn(t) }, set: { mimo.setOn(t, $0) })) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Label(t.name, systemImage: t.icon)
+                        Text(t.detail).font(.caption).foregroundStyle(t.permanent && (t.custom || t.id == "bin") ? Color.orange : Color.secondary)
+                        if t.mode == .nodeModules, let n = mimo.map?.nodeModules.count {
+                            Text("Found in \(n) project\(n == 1 ? "" : "s")").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .toggleStyle(.checkbox)
+                Spacer()
+                if let s = mimo.knownSize(t) { Text(fmt(s)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                if removable {
+                    Button { mimo.removeCustomPlace(t) } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless).foregroundStyle(.secondary).help("Remove this place")
+                }
+            }
+            if t.usesDays && mimo.isOn(t) {
+                Stepper("Only items older than \(mimo.days(t)) days",
+                        value: Binding(get: { mimo.days(t) }, set: { mimo.setDays(t, $0) }), in: 7...730, step: 7)
+                    .font(.caption).padding(.leading, 22)
+            }
+        }
+    }
+
+    func folderNode(_ node: FolderNode, total: Int64) -> some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(node.children) { c in folderRow(c, total: node.folder.bytes) }
+            }
+            .padding(.top, 4)
+        } label: {
+            folderRow(node.folder, total: total, bold: true)
+        }
+    }
+
+    func folderRow(_ f: FolderSize, total: Int64, bold: Bool = false) -> some View {
+        let name = f.path.replacingOccurrences(of: mimo.home.path, with: "~")
+        let covered = mimo.coveredByKnown(f.path)
+        let added = mimo.isCustom(path: f.path)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(bold ? (f.path as NSString).lastPathComponent : name).font(bold ? .callout.weight(.medium) : .caption)
+                    .lineLimit(1).truncationMode(.middle).help(name)
+                Spacer()
+                Text(fmt(f.bytes)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                if let covered {
+                    Text(covered.name).font(.caption2).foregroundStyle(.teal).lineLimit(1)
+                } else if added {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Already one of your places")
+                } else {
+                    Menu {
+                        Button("Move files older than 30 days to the Bin") { mimo.addCustomPlace(path: f.path, clearEverything: false) }
+                        Button("Delete everything inside (permanent)") { mimo.addCustomPlace(path: f.path, clearEverything: true) }
+                        Divider()
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: f.path)]) }
+                    } label: { Image(systemName: "plus.circle") }
+                    .menuStyle(.borderlessButton).fixedSize().help("Add as a cleaning place")
+                }
+            }
+            GeometryReader { g in
+                RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.55))
+                    .frame(width: max(2, g.size.width * CGFloat(Double(f.bytes) / Double(max(total, 1)))))
+            }.frame(height: 4)
+        }
+    }
+
+    func section<C: View>(_ title: String, _ subtitle: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(subtitle).font(.caption2).foregroundStyle(.tertiary)
+            }
+            VStack(alignment: .leading, spacing: 10) { content() }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.07)))
+        }
+    }
+}
+
+struct SettingsTab: View {
+    @EnvironmentObject var mimo: Mimo
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                section("When to step in") {
+                    Stepper(value: $mimo.cleanBelowGB, in: 5...500, step: 5) {
+                        HStack {
+                            Text("Clean when free space drops below")
+                            Spacer()
+                            Text("\(mimo.cleanBelowGB) GB").font(.body.monospacedDigit().weight(.semibold))
+                        }
+                    }
+                    Text("I'll send you a heads-up at \(mimo.warnGB) GB.").font(.caption).foregroundStyle(.secondary)
+                }
+
+                section("Before deleting") {
+                    Picker("", selection: $mimo.askFirst) {
+                        Text("Ask me first — gather everything for review").tag(true)
+                        Text("Clean automatically").tag(false)
+                    }
+                    .pickerStyle(.radioGroup).labelsHidden()
+                }
+
+                section("What I clean") {
+                    HStack {
+                        Text("Looking after \(mimo.enabledTargets.count) of \(mimo.allPlaces.count) places")
+                        Spacer()
+                        Button("Choose places") { mimo.tab = .places }.controlSize(.small)
+                    }
+                }
+
+                section("Privacy") {
+                    Toggle(isOn: $mimo.countInstall) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Count my install")
+                            Text("Sends one anonymous ping when Mimo is first installed: a random ID, app version, macOS version and chip type. Nothing about your files.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.toggleStyle(.checkbox)
+                }
+
+                section("Notifications") {
+                    HStack {
+                        Text("Check in with me every")
+                        Spacer()
+                        Picker("", selection: $mimo.reportMinutes) {
+                            Text("15 min").tag(15); Text("30 min").tag(30); Text("1 hour").tag(60); Text("3 hours").tag(180)
+                        }.labelsHidden().fixedSize()
+                    }
+                    HStack {
+                        Button("Send a test notification") { mimo.report() }.controlSize(.small)
+                        Spacer()
+                        Text("Next in \(mimo.nextReportText)").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    if !mimo.notificationsAllowed {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            Text("Notifications are off for Mimo").font(.caption)
+                            Spacer()
+                            Button("Turn on") { mimo.openNotificationSettings() }.controlSize(.small)
+                        }
+                    }
+                }
+            }
+            .padding(.trailing, 6)
+        }
+    }
+
+    func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 10) { content() }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.07)))
         }
     }
 }

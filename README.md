@@ -17,8 +17,9 @@ A tiny Mac menu bar app that watches your free space every minute and cleans up 
 ## What Mimo does
 
 - **Checks every minute.** Mimo reads how much space macOS says you can actually use.
-- **Warns at 25 GB.** You get a friendly heads-up before things get tight.
-- **Cleans below 15 GB.** He clears the stuff your Mac can rebuild, then tells you how much he freed.
+- **You pick the line.** He steps in when free space drops below 15 GB by default; set anything from 5 GB to 500 GB. He warns you 10 GB before that.
+- **Asks before deleting.** He gathers everything he wants to remove on one Review screen, grouped by type with sizes and the biggest files. Untick what you want to keep, then approve. Prefer hands-off? Switch to *Clean automatically*.
+- **You choose what he cleans.** Turn each category on or off in Settings.
 - **Checks in with you.** Notifications every 15 min, 30 min, 1 hour or 3 hours, so you know he's on patrol.
 - **Shows his work.** Open his window to see a storage ring, what he can clean (with sizes) and a live activity feed.
 
@@ -31,8 +32,10 @@ A tiny Mac menu bar app that watches your free space every minute and cleans up 
 | Xcode build data (`DerivedData`) | Deleted. Xcode rebuilds it. |
 | Gradle caches (`~/.gradle/caches`) | Deleted. Gradle downloads what it needs again. |
 | npm cache (`~/.npm/_cacache`) | Deleted. Your projects keep their `node_modules`. |
+| Old installers in Downloads (.dmg, .pkg, .zip, .iso) — *off by default* | Moved to the Bin. |
+| Empty the Bin — *off by default* | Permanently deleted. |
 
-He never touches your Documents, Desktop, Downloads or Photos library. Mimo runs entirely on your Mac and doesn't connect to the internet.
+He never touches your Documents, Desktop or Photos library, and only cleans the categories you've switched on. Your files never leave your Mac. The only network request Mimo makes is one anonymous ping on first launch so installs can be counted: a random install ID, the app version, the macOS version and the chip type. Turn it off in Settings › Privacy.
 
 ## Install
 
