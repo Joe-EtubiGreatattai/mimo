@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mimo Stats</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#2A6CC6">
+<link rel="icon" type="image/png" href="/app/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Figtree:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: a sky-blue hero band carries the headline number and three supporting KPIs; below, a 3-column card grid
+   (charts span two columns, side panels one) that collapses to a single column on phones. */
+:root{
+  --paper:#EEF3F9; --card:#FFFFFF; --ink:#13202F; --ink-2:#56677B; --ink-3:#8796A8; --line:rgba(19,32,47,.08); --grid:rgba(19,32,47,.07);
+  --mac:#2F7FD8; --win:#C9731A; --sky-soft:#E2EEFB; --good:#1F9D5B; --bad:#D33A4F;
+  --shadow:0 1px 0 rgba(19,32,47,.04),0 14px 34px -24px rgba(10,30,60,.45);
+  --display:"Bagel Fat One","Arial Rounded MT Bold",system-ui,sans-serif;
+  --body:"Figtree",-apple-system,"Segoe UI",system-ui,sans-serif;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --paper:#0A111B;--card:#111C29;--ink:#E8F0F9;--ink-2:#97A9BD;--ink-3:#6B7E93;--line:rgba(232,240,249,.08);--grid:rgba(232,240,249,.07);
+  --mac:#3C8CDF;--win:#C47518;--sky-soft:#152B44;--good:#35B979;--bad:#F06276;
+  --shadow:0 1px 0 rgba(0,0,0,.2),0 14px 34px -22px rgba(0,0,0,.8);color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 var(--body);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid #FFD23F;outline-offset:2px}
+.wrap{max-width:1240px;margin:0 auto;padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}
+.num{font-variant-numeric:tabular-nums}
+
+/* hero */
+.hero{color:#fff;background:radial-gradient(120% 140% at 0% 0%,#9DDAF8 0%,#4C9BE9 42%,#2A69C2 100%);padding-top:max(20px,env(safe-area-inset-top));padding-bottom:84px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;right:-10%;top:-40%;width:60%;height:180%;background:radial-gradient(closest-side,rgba(255,255,255,.18),transparent);pointer-events:none}
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:relative;z-index:1}
+.brand{display:flex;align-items:center;gap:12px;margin-right:auto}
+.brand img{width:42px;height:42px;border-radius:12px;box-shadow:0 8px 18px -8px rgba(0,20,60,.6)}
+.brand b{font:400 26px/1 var(--display);letter-spacing:.5px}
+.brand span{font-weight:600;opacity:.85;font-size:15px;margin-left:2px}
+.live{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,.18);padding:7px 12px;border-radius:999px}
+.live i{width:8px;height:8px;border-radius:50%;background:#7CF0B0;animation:ping 2s infinite}
+.live.off i{background:#FFB4BF;animation:none}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(124,240,176,.6)}70%{box-shadow:0 0 0 9px rgba(124,240,176,0)}100%{box-shadow:0 0 0 0 rgba(124,240,176,0)}}
+.seg{display:inline-flex;background:rgba(255,255,255,.18);border-radius:12px;padding:3px}
+.seg button{border:0;background:transparent;color:#fff;font-weight:700;font-size:13px;padding:7px 13px;border-radius:9px;transition:background .2s,color .2s}
+.seg button[aria-pressed="true"]{background:#fff;color:#1D5BAE}
+.headline{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,2fr);gap:28px;align-items:end;margin-top:34px;position:relative;z-index:1}
+.big .label{font-weight:600;opacity:.9}
+.big .value{font:800 clamp(56px,9vw,104px)/1 var(--body);letter-spacing:-3px;margin-top:6px}
+.big .value.bump{animation:bump .6s var(--ease)}
+@keyframes bump{40%{transform:scale(1.04);text-shadow:0 0 30px rgba(255,255,255,.6)}}
+.delta{display:inline-flex;align-items:center;gap:6px;margin-top:12px;font-weight:700;font-size:14px;background:rgba(255,255,255,.18);padding:6px 11px;border-radius:999px}
+.delta.up::before{content:"▲";font-size:10px}.delta.down::before{content:"▼";font-size:10px}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.kpi{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:18px;padding:14px 16px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-width:0}
+.kpi .label{font-size:13px;font-weight:600;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .value{font:800 32px/1.1 var(--body);margin-top:4px;letter-spacing:-.5px}
+.kpi .sub{font-size:12.5px;opacity:.88;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* grid */
+main{margin-top:-56px;position:relative;z-index:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;padding-bottom:40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);padding:18px 18px 16px;min-width:0;animation:rise .55s var(--ease) both}
+.span2{grid-column:span 2}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}}
+.card header{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+.card h2{margin:0;font-size:16px;font-weight:700}
+.card .hint{font-size:13px;color:var(--ink-2);margin-top:2px}
+.card header .right{margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.legend{display:flex;gap:14px;font-size:13px;color:var(--ink-2);font-weight:600}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:3px}
+.tbtn{border:0;background:var(--sky-soft);color:var(--ink-2);font-size:12px;font-weight:700;padding:5px 9px;border-radius:8px}
+
+/* charts */
+.chart{position:relative;height:260px}
+.chart.sm{height:190px}
+.chart svg{display:block;width:100%;height:100%;overflow:visible}
+.axis text{fill:var(--ink-3);font-size:11.5px;font-family:var(--body)}
+.gridline{stroke:var(--grid);stroke-width:1}
+.baseline{stroke:var(--line);stroke-width:1}
+.bar{transition:opacity .15s}
+.chart svg.hovering .bar{opacity:.45}
+.chart svg.hovering .col.on .bar{opacity:1}
+.tip{position:absolute;pointer-events:none;background:var(--card);border:1px solid var(--line);box-shadow:0 12px 30px -12px rgba(0,0,0,.35);border-radius:12px;padding:9px 11px;font-size:13px;min-width:150px;transform:translate(-50%,-100%);opacity:0;transition:opacity .12s;z-index:5}
+.tip.on{opacity:1}
+.tip b{display:block;margin-bottom:4px}
+.tip .r{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.tip .r span{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2)}
+.tip .r i{width:8px;height:8px;border-radius:2px}
+.empty{position:absolute;inset:0;display:grid;place-content:center;text-align:center;color:var(--ink-2);font-size:14px;pointer-events:none}
+table.data{width:100%;border-collapse:collapse;font-size:13px}
+table.data th,table.data td{text-align:right;padding:6px 4px;border-bottom:1px solid var(--line)}
+table.data th:first-child,table.data td:first-child{text-align:left}
+.tablewrap{max-height:260px;overflow:auto}
+
+/* donut */
+.donut{display:flex;align-items:center;gap:18px}
+.donut svg{width:150px;height:150px;flex:none;transform:rotate(-90deg)}
+.donut .seg-arc{transition:stroke-dasharray .9s var(--ease),stroke-dashoffset .9s var(--ease)}
+.donut .center{position:relative}
+.donut .center .c{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.donut .c strong{font-size:28px;font-weight:800}
+.donut .c span{font-size:12px;color:var(--ink-2)}
+.dl{display:grid;gap:10px;flex:1;min-width:0}
+.dl div{display:flex;align-items:center;gap:8px;font-size:14px}
+.dl i{width:10px;height:10px;border-radius:3px;flex:none}
+.dl .n{margin-left:auto;font-weight:800}
+.dl .p{color:var(--ink-2);font-size:12.5px;min-width:40px;text-align:right}
+
+/* bars list */
+.hbars{display:grid;gap:11px}
+.hbar .t{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;margin-bottom:5px}
+.hbar .t span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-flex;align-items:center;gap:7px}
+.hbar .t b{font-weight:800}
+.track{height:8px;border-radius:5px;background:var(--sky-soft);overflow:hidden;display:flex;gap:2px}
+.track i{display:block;height:100%;border-radius:4px;transition:width .8s var(--ease);min-width:0}
+.pill{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--sky-soft);color:var(--ink-2)}
+
+/* feed */
+.feed{display:grid;gap:2px;max-height:390px;overflow:auto;margin:0 -6px;padding:0 6px}
+.item{display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:14px;transition:background .3s}
+.item.new{animation:slidein .6s var(--ease);background:var(--sky-soft)}
+@keyframes slidein{from{opacity:0;transform:translateY(-10px)}}
+.osicon{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;flex:none;color:#fff}
+.osicon.mac{background:var(--mac)}.osicon.windows{background:var(--win)}
+.osicon svg{width:18px;height:18px}
+.item .grow{flex:1;min-width:0}
+.item .name{font-weight:700;font-size:14px}
+.item .meta{font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item time{font-size:12px;color:var(--ink-3);white-space:nowrap;flex:none}
+.feed{overflow-x:hidden;grid-template-columns:minmax(0,1fr)}
+.item .grow{overflow:hidden}
+.nothing{color:var(--ink-2);font-size:14px;padding:20px 4px;text-align:center}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translate(-50%,140%);background:var(--ink);color:var(--paper);padding:12px 16px;border-radius:16px;font-weight:600;display:flex;align-items:center;gap:10px;box-shadow:0 18px 40px -14px rgba(0,0,0,.5);transition:transform .45s cubic-bezier(.34,1.4,.64,1);z-index:20;max-width:calc(100% - 32px)}
+.toast:not(.on){visibility:hidden;transition:transform .3s,visibility 0s .3s}
+.toast.on{transform:translate(-50%,0)}
+.toast img{width:28px;height:28px;border-radius:8px}
+footer{color:var(--ink-3);font-size:12.5px;text-align:center;padding:0 0 30px}
+footer a{color:inherit}
+
+@media (max-width:1000px){
+  main{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .headline{grid-template-columns:1fr}
+}
+@media (max-width:680px){
+  main{grid-template-columns:minmax(0,1fr)}
+  .span2{grid-column:auto}
+  .kpis{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .kpi{padding:11px 12px;border-radius:14px}
+  .kpi .value{font-size:24px}
+  .chart{height:220px}
+  .brand span{display:none}
+  .card header{flex-wrap:wrap}
+  .card header .right{margin-left:0;width:100%;justify-content:space-between}
+}
+@media (max-width:400px){ .kpis{grid-template-columns:1fr 1fr} .kpis .kpi:last-child{grid-column:span 2} .seg button{padding:7px 10px} }
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="apple" viewBox="0 0 24 24"><path fill="currentColor" d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.3 1.2 9.7.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.5-1-2.5-3.8zM14 5.4c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1.1.1 2.1-.6 2.8-1.4z"/></symbol>
+  <symbol id="win" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.1 10.4 4v7.2H3zm8.3-1.2L21 2.5v8.7h-9.7zM3 12.2h7.4v7.2L3 18.3zm8.3 0H21v9.3l-9.7-1.4z"/></symbol>
+</svg>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="top">
+      <div class="brand"><img src="/app/icon-192.png" alt=""><b>Mimo</b><span>stats</span></div>
+      <span class="live" id="live"><i></i><span id="updated">Connecting…</span></span>
+      <div class="seg" role="group" aria-label="Time range">
+        <button type="button" data-days="7" aria-pressed="false">7 days</button>
+        <button type="button" data-days="30" aria-pressed="true">30 days</button>
+        <button type="button" data-days="90" aria-pressed="false">90 days</button>
+      </div>
+    </div>
+    <div class="headline">
+      <div class="big">
+        <div class="label">Computers running Mimo</div>
+        <div class="value num" id="total">–</div>
+        <span class="delta" id="delta">–</span>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="label">New installs</div><div class="value num" id="kRange">–</div><div class="sub" id="kRangeSub">–</div></div>
+        <div class="kpi"><div class="label">Download clicks</div><div class="value num" id="kDl">–</div><div class="sub" id="kDlSub">–</div></div>
+        <div class="kpi"><div class="label">Phones paired</div><div class="value num" id="kPh">–</div><div class="sub" id="kPhSub">–</div></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card span2" style="animation-delay:.05s">
+    <header>
+      <div><h2>Installs per day</h2><div class="hint" id="instHint">New computers running Mimo</div></div>
+      <div class="right">
+        <div class="legend"><span><i style="background:var(--mac)"></i>Mac</span><span><i style="background:var(--win)"></i>Windows</span></div>
+        <button class="tbtn" type="button" data-table="instChart">Table</button>
+      </div>
+    </header>
+    <div class="chart" id="instChart"></div>
+  </section>
+
+  <section class="card" style="animation-delay:.1s">
+    <header><div><h2>Mac vs Windows</h2><div class="hint">All installs so far</div></div></header>
+    <div class="donut">
+      <div class="center">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="48" fill="none" stroke="var(--sky-soft)" stroke-width="16"/>
+          <circle class="seg-arc" id="arcMac" cx="60" cy="60" r="48" fill="none" stroke="var(--mac)" stroke-width="16" stroke-dasharray="0 302"/>
+          <circle class="seg-arc" id="arcWin" cx="60" cy="60" r="48" fill="none" stroke="var(--win)" stroke-width="16" stroke-dasharray="0 302"/>
+        </svg>
+        <div class="c"><strong class="num" id="donutTotal">0</strong><span>installs</span></div>
+      </div>
+      <div class="dl" id="split"></div>
+    </div>
+  </section>
+
+  <section class="card span2" style="animation-delay:.15s">
+    <header>
+      <div><h2>Download clicks per day</h2><div class="hint" id="dlHint">Clicks on the website's download buttons</div></div>
+      <div class="right">
+        <div class="legend"><span><i style="background:var(--mac)"></i>Mac</span><span><i style="background:var(--win)"></i>Windows</span></div>
+        <button class="tbtn" type="button" data-table="dlChart">Table</button>
+      </div>
+    </header>
+    <div class="chart sm" id="dlChart"></div>
+  </section>
+
+  <section class="card" style="grid-row:span 2;animation-delay:.2s">
+    <header><div><h2>Latest installs</h2><div class="hint">Updates live as Macs and PCs check in</div></div></header>
+    <div class="feed" id="feed"></div>
+  </section>
+
+  <section class="card" style="animation-delay:.25s">
+    <header><div><h2>App versions</h2><div class="hint">What people are running</div></div></header>
+    <div class="hbars" id="versions"></div>
+  </section>
+
+  <section class="card" style="animation-delay:.3s">
+    <header><div><h2>Chips</h2><div class="hint">Apple silicon, Intel and Windows on ARM</div></div></header>
+    <div class="hbars" id="chips"></div>
+  </section>
+
+  <section class="card" style="animation-delay:.35s">
+    <header><div><h2>Operating systems</h2><div class="hint">macOS and Windows versions</div></div></header>
+    <div class="hbars" id="systems"></div>
+  </section>
+
+  <section class="card" style="animation-delay:.4s">
+    <header><div><h2>Which button people click</h2><div class="hint">All download clicks</div></div></header>
+    <div class="hbars" id="sources"></div>
+  </section>
+
+  <section class="card" style="animation-delay:.45s">
+    <header><div><h2>Phone remote</h2><div class="hint">Mimo Remote pairing</div></div></header>
+    <div class="hbars" id="phones"></div>
+  </section>
+</main>
+
+<footer class="wrap">Counts only. Mimo never sends names, files or IP addresses. · <a href="https://joe-etubigreatattai.github.io/mimo/" target="_blank" rel="noopener">Mimo website</a></footer>
+<div class="toast" id="toast" role="status" aria-live="polite"><img src="/app/icon-192.png" alt=""><span id="toastText"></span></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  const nf = (n) => Number(n || 0).toLocaleString();
+  const ago = (t) => { const s = Math.max(0, Math.round((Date.now() - new Date(t)) / 1000)); if (s < 45) return 'just now'; if (s < 3600) return Math.round(s / 60) + ' min ago'; if (s < 86400) return Math.round(s / 3600) + ' h ago'; return Math.round(s / 86400) + ' d ago'; };
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  let days = 30, D = null, lastRecent = null, shown = {}, timer = null, tables = {};
+  try { const d = Number(localStorage.getItem('mimoStatsDays')); if ([7, 30, 90].includes(d)) days = d; } catch (e) {}
+
+  // ---------- numbers ----------
+  function countTo(el, to, key) {
+    const from = shown[key] ?? 0; shown[key] = to;
+    if (from === to) { el.textContent = nf(to); return; }
+    const t0 = performance.now(), dur = 900;
+    const step = (t) => { const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3); el.textContent = nf(Math.round(from + (to - from) * e)); if (p < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
+  function pct(a, b) { return b ? Math.round((a / b) * 100) : 0; }
+  function change(cur, prev) {
+    if (!prev && !cur) return { text: 'No installs yet in this period', cls: '' };
+    if (!prev) return { text: 'All new this period', cls: 'up' };
+    const c = Math.round(((cur - prev) / prev) * 100);
+    return { text: `${Math.abs(c)}% vs previous ${days} days`, cls: c >= 0 ? 'up' : 'down' };
+  }
+
+  // ---------- stacked bar chart (one axis, 2px gaps, 4px rounded tops, hover tooltip) ----------
+  function bars(el, rows, keys, labels) {
+    const W = el.clientWidth, H = el.clientHeight, padL = 34, padB = 26, padT = 8, padR = 4;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const totals = rows.map((r) => keys.reduce((t, k) => t + r[k], 0));
+    const max = Math.max(1, ...totals);
+    const step = max <= 4 ? 1 : Math.ceil(max / 4 / (max > 50 ? 10 : 1)) * (max > 50 ? 10 : 1);
+    const top = Math.ceil(max / step) * step;
+    const y = (v) => padT + ih - (v / top) * ih;
+    const n = rows.length, slot = iw / n, bw = Math.max(2, Math.min(22, slot * 0.62));
+    const colors = keys.map((k) => css(k === keys[0] ? '--mac' : '--win'));
+    const surface = css('--card');
+    let svg = `<svg role="img" aria-label="${esc(labels.title)}"><g class="axis">`;
+    for (let v = 0; v <= top; v += step) svg += `<line class="${v ? 'gridline' : 'baseline'}" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    const every = Math.ceil(n / Math.max(2, Math.floor(iw / 64)));
+    rows.forEach((r, i) => { if (i % every === 0 || i === n - 1) { const d = new Date(r.day + 'T00:00:00'); svg += `<text x="${padL + slot * i + slot / 2}" y="${H - 6}" text-anchor="middle">${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}</text>`; } });
+    svg += '</g>';
+    rows.forEach((r, i) => {
+      const x = padL + slot * i + (slot - bw) / 2;
+      let acc = 0;
+      svg += `<g class="col" data-i="${i}">`;
+      const segs = keys.map((k, j) => ({ k, v: r[k], c: colors[j] })).filter((s) => s.v > 0);
+      segs.forEach((s, j) => {
+        const y0 = y(acc), y1 = y(acc + s.v); acc += s.v;
+        const h = Math.max(1, y0 - y1 - (j > 0 ? 2 : 0));
+        const isTop = j === segs.length - 1, rr = Math.min(4, h / 2, bw / 2);
+        const yy = y1, bottom = y0 - (j > 0 ? 2 : 0);
+        const path = isTop
+          ? `M${x},${bottom}V${yy + rr}Q${x},${yy} ${x + rr},${yy}H${x + bw - rr}Q${x + bw},${yy} ${x + bw},${yy + rr}V${bottom}Z`
+          : `M${x},${bottom}V${yy}H${x + bw}V${bottom}Z`;
+        svg += `<path class="bar" d="${path}" fill="${s.c}"/>`;
+      });
+      svg += `<rect x="${padL + slot * i}" y="${padT}" width="${slot}" height="${ih}" fill="transparent"/></g>`;
+    });
+    svg += '</svg>';
+    const allZero = totals.every((t) => t === 0);
+    el.innerHTML = svg + `<div class="tip"></div>` + (allZero ? `<div class="empty">${esc(labels.empty)}</div>` : '');
+    const s = el.querySelector('svg'), tip = el.querySelector('.tip');
+    el.querySelectorAll('.col').forEach((g) => {
+      g.addEventListener('mouseenter', () => {
+        const i = +g.dataset.i, r = rows[i];
+        s.classList.add('hovering'); el.querySelectorAll('.col.on').forEach((c) => c.classList.remove('on')); g.classList.add('on');
+        const d = new Date(r.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+        tip.innerHTML = `<b>${d}</b>` + keys.map((k, j) => `<div class="r"><span><i style="background:${colors[j]}"></i>${labels.names[j]}</span><strong class="num">${nf(r[k])}</strong></div>`).join('') + `<div class="r" style="margin-top:3px;border-top:1px solid var(--line);padding-top:3px"><span>Total</span><strong class="num">${nf(totals[i])}</strong></div>`;
+        const cx = padL + slot * i + slot / 2;
+        tip.style.left = Math.min(Math.max(cx, 80), W - 80) + 'px'; tip.style.top = Math.max(y(totals[i]) - 8, 64) + 'px';
+        tip.classList.add('on');
+      });
+    });
+    s.addEventListener('mouseleave', () => { s.classList.remove('hovering'); tip.classList.remove('on'); el.querySelectorAll('.col.on').forEach((c) => c.classList.remove('on')); });
+  }
+  function table(el, rows, keys, names) {
+    el.innerHTML = `<div class="tablewrap"><table class="data"><thead><tr><th>Day</th>${names.map((n) => `<th>${n}</th>`).join('')}<th>Total</th></tr></thead><tbody>${rows.slice().reverse().map((r) => `<tr><td>${new Date(r.day + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}</td>${keys.map((k) => `<td class="num">${nf(r[k])}</td>`).join('')}<td class="num"><b>${nf(keys.reduce((t, k) => t + r[k], 0))}</b></td></tr>`).join('')}</tbody></table></div>`;
+  }
+  function drawCharts() {
+    if (!D) return;
+    const inst = ['mac', 'windows'], dl = ['dlMac', 'dlWindows'];
+    tables.instChart ? table($('instChart'), D.series, inst, ['Mac', 'Windows']) : bars($('instChart'), D.series, inst, { title: 'Installs per day by platform', names: ['Mac', 'Windows'], empty: 'No installs in this period yet' });
+    tables.dlChart ? table($('dlChart'), D.series, dl, ['Mac', 'Windows']) : bars($('dlChart'), D.series, dl, { title: 'Download clicks per day by platform', names: ['Mac', 'Windows'], empty: 'No download clicks in this period yet' });
+  }
+  document.querySelectorAll('[data-table]').forEach((b) => b.onclick = () => { const k = b.dataset.table; tables[k] = !tables[k]; b.textContent = tables[k] ? 'Chart' : 'Table'; drawCharts(); });
+
+  // ---------- horizontal bar lists ----------
+  function hbars(el, items, total, empty) {
+    if (!items.length) { el.innerHTML = `<div class="nothing">${esc(empty)}</div>`; return; }
+    el.innerHTML = items.map((it) => {
+      const segs = it.segs.filter((s) => s.n > 0);
+      return `<div class="hbar"><div class="t"><span>${it.label}</span><b class="num">${nf(it.n)}</b></div>
+        <div class="track">${segs.map((s) => `<i style="width:0;background:${s.color}" data-w="${(s.n / Math.max(1, total)) * 100}"></i>`).join('')}</div></div>`;
+    }).join('');
+    requestAnimationFrame(() => el.querySelectorAll('.track i').forEach((i) => i.style.width = i.dataset.w + '%'));
+  }
+  const group = (arr, keyFn) => {
+    const m = new Map();
+    arr.forEach((x) => { const k = keyFn(x); const g = m.get(k) || { key: k, n: 0, mac: 0, windows: 0 }; g.n += x.n; g[x.platform === 'windows' ? 'windows' : 'mac'] += x.n; m.set(k, g); });
+    return [...m.values()].sort((a, b) => b.n - a.n);
+  };
+  const segsOf = (g) => [{ n: g.mac, color: 'var(--mac)' }, { n: g.windows, color: 'var(--win)' }];
+  const osName = (o, p) => {
+    const m = /Windows\s+10\.0\.(\d+)/i.exec(o || '');
+    if (m) return (Number(m[1]) >= 22000 ? 'Windows 11' : 'Windows 10') + ` (build ${m[1]})`;
+    if (p === 'windows') return o || 'Windows';
+    return o ? 'macOS ' + o.replace(/^macOS\s*/i, '') : 'Unknown system';
+  };
+  const chipName = (a, p) => p === 'windows' ? (a === 'arm64' ? 'Windows on ARM' : 'Windows x64') : (a === 'arm64' ? 'Apple silicon' : a === 'x86_64' ? 'Intel Mac' : a);
+
+  // ---------- feed ----------
+  const OS = (p) => p === 'windows' ? '<svg><use href="#win"/></svg>' : '<svg><use href="#apple"/></svg>';
+  function feed() {
+    const r = D.recent || [];
+    const newest = r[0] && r[0].at;
+    if (!r.length) { $('feed').innerHTML = '<div class="nothing">No installs yet. They’ll appear here the moment someone opens Mimo.</div>'; return; }
+    const fresh = lastRecent ? r.filter((x) => new Date(x.at) > new Date(lastRecent)).length : 0;
+    $('feed').innerHTML = r.map((x, i) => `<div class="item${i < fresh ? ' new' : ''}"><span class="osicon ${x.platform === 'windows' ? 'windows' : 'mac'}">${OS(x.platform)}</span>
+      <div class="grow"><div class="name">${x.platform === 'windows' ? 'Windows PC' : 'Mac'} <span class="pill">v${esc(x.version || '?')}</span></div>
+      <div class="meta">${esc(osName(x.os, x.platform))} · ${esc(chipName(x.arch, x.platform))}</div></div><time datetime="${esc(x.at)}">${ago(x.at)}</time></div>`).join('');
+    if (lastRecent && fresh) {
+      const x = r[0];
+      toast(`New install · ${x.platform === 'windows' ? 'Windows PC' : 'Mac'} · v${x.version}`);
+      $('total').classList.remove('bump'); void $('total').offsetWidth; $('total').classList.add('bump');
+    }
+    lastRecent = newest;
+  }
+  function toast(t) { $('toastText').textContent = t; $('toast').classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => $('toast').classList.remove('on'), 4200); }
+
+  // ---------- render ----------
+  function render() {
+    const I = D.installs, L = D.downloads, P = D.phones;
+    countTo($('total'), I.total, 'total');
+    const ch = change(I.inRange, I.prevRange); $('delta').textContent = ch.text; $('delta').className = 'delta ' + ch.cls;
+    countTo($('kRange'), I.inRange, 'range'); $('kRangeSub').textContent = `${nf(I.today)} in the last 24 hours`;
+    countTo($('kDl'), L.inRange, 'dl'); $('kDlSub').textContent = L.inRange ? `${pct(I.inRange, L.inRange)}% became installs` : `${nf(L.total)} all time`;
+    countTo($('kPh'), P.paired, 'ph'); $('kPhSub').textContent = `${nf(P.computers)} computer${P.computers === 1 ? '' : 's'} · ${nf(P.online)} online now`;
+    $('instHint').textContent = `New computers running Mimo, last ${days} days`;
+    $('dlHint').textContent = `Clicks on the website’s download buttons, last ${days} days`;
+
+    // donut
+    const C = 2 * Math.PI * 48, tot = Math.max(1, I.mac + I.windows), gap = I.mac && I.windows ? 3 : 0;
+    const lm = (I.mac / tot) * C, lw = (I.windows / tot) * C;
+    $('arcMac').setAttribute('stroke-dasharray', `${Math.max(0, lm - gap)} ${C}`);
+    $('arcWin').setAttribute('stroke-dasharray', `${Math.max(0, lw - gap)} ${C}`);
+    $('arcWin').setAttribute('stroke-dashoffset', `${-lm}`);
+    countTo($('donutTotal'), I.mac + I.windows, 'donut');
+    $('split').innerHTML = [['Mac', I.mac, 'var(--mac)'], ['Windows', I.windows, 'var(--win)']].map(([n, v, c]) => `<div><i style="background:${c}"></i>${n}<span class="n num">${nf(v)}</span><span class="p num">${pct(v, I.mac + I.windows)}%</span></div>`).join('');
+
+    drawCharts();
+    feed();
+
+    const v = group(D.versions, (x) => x.version).slice(0, 6);
+    hbars($('versions'), v.map((g) => ({ label: `v${esc(g.key)}`, n: g.n, segs: segsOf(g) })), Math.max(...v.map((g) => g.n), 1), 'No installs yet');
+    const c = group(D.chips, (x) => chipName(x.arch, x.platform));
+    hbars($('chips'), c.map((g) => ({ label: `${g.windows ? OS('windows') : OS('mac')}`.replace('<svg>', '<svg style="width:14px;height:14px;opacity:.6">') + esc(g.key), n: g.n, segs: segsOf(g) })), Math.max(...c.map((g) => g.n), 1), 'No installs yet');
+    const s = group(D.systems, (x) => osName(x.os, x.platform)).slice(0, 6);
+    hbars($('systems'), s.map((g) => ({ label: esc(g.key), n: g.n, segs: segsOf(g) })), Math.max(...s.map((g) => g.n), 1), 'No installs yet');
+    const srcName = { hero: 'Top of page', footer: 'Bottom of page', nav: 'Menu bar', readme: 'GitHub README', other: 'Other' };
+    const src = Object.entries(L.bySource).map(([k, n]) => ({ key: k, n, win: /-win$/.test(k) })).reduce((m, x) => { const b = x.key.replace(/-win$/, ''); const g = m.find((y) => y.key === b) || (m.push({ key: b, n: 0, mac: 0, windows: 0 }), m[m.length - 1]); g.n += x.n; g[x.win ? 'windows' : 'mac'] += x.n; return m; }, []).sort((a, b) => b.n - a.n);
+    hbars($('sources'), src.map((g) => ({ label: esc(srcName[g.key] || g.key), n: g.n, segs: segsOf(g) })), Math.max(...src.map((g) => g.n), 1), 'No download clicks yet');
+    hbars($('phones'), [
+      { label: 'Phones paired', n: P.paired, segs: [{ n: P.paired, color: 'var(--mac)' }] },
+      { label: 'Computers with a phone', n: P.computers, segs: [{ n: P.computers, color: 'var(--mac)' }] },
+      { label: 'Online right now', n: P.online, segs: [{ n: P.online, color: 'var(--good)' }] },
+    ], Math.max(P.paired, P.computers, P.online, 1), '');
+  }
+
+  // ---------- data ----------
+  async function load(first) {
+    try {
+      const r = await fetch('/v1/dashboard?days=' + days, { cache: 'no-store' });
+      if (!r.ok) throw new Error();
+      D = await r.json();
+      $('live').classList.remove('off');
+      render();
+      $('updated').textContent = 'Live';
+    } catch (e) {
+      $('live').classList.add('off'); $('updated').textContent = first ? 'Can’t reach the server' : 'Reconnecting…';
+    }
+    clearTimeout(timer); timer = setTimeout(() => load(false), document.hidden ? 60000 : 10000);
+  }
+  document.querySelectorAll('[data-days]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(+b.dataset.days === days));
+    b.onclick = () => {
+      days = +b.dataset.days; try { localStorage.setItem('mimoStatsDays', days); } catch (e) {}
+      document.querySelectorAll('[data-days]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      load(false);
+    };
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false); });
+  let rs; window.addEventListener('resize', () => { clearTimeout(rs); rs = setTimeout(drawCharts, 120); });
+  setInterval(() => document.querySelectorAll('.item time').forEach((t) => t.textContent = ago(t.getAttribute('datetime'))), 30000);
+  load(true);
+})();
+</script>
+</body>
+</html>

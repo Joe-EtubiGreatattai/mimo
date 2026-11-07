@@ -133,32 +133,70 @@ async function stats() {
   return { totalInstalls: total, last24h: d1, last7d: d7, last30d: d30, byVersion: map(byVersion), byChip: map(byArch), byDay: map(byDay), windowsWaiting, downloadClicks, downloads7d, byPlatform: map(byPlatform), windowsDownloads: winDownloads, updatedAt: new Date().toISOString() };
 }
 
+// Everything the stats dashboard needs, for the last N days (7, 30 or 90). All anonymous counts.
+let devicesCol = null;
+app.get('/v1/dashboard', async (req, res) => {
+  try {
+    const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+    const now = Date.now(), DAY = 86_400_000;
+    const start = new Date(now - days * DAY), prevStart = new Date(now - 2 * days * DAY);
+    const plat = { $ifNull: ['$platform', 'macos'] };
+    const dayOf = (f) => ({ $dateToString: { format: '%Y-%m-%d', date: f } });
+    const [total, byPlatform, inRange, prevRange, today, installDays, dlDays, dlTotal, dlRange, dlPrev, dlBySource, byVersion, byArch, byOS, waiting, recent, phoneAgg, online] = await Promise.all([
+      installs.countDocuments(),
+      installs.aggregate([{ $group: { _id: plat, n: { $sum: 1 } } }]).toArray(),
+      installs.countDocuments({ firstSeen: { $gte: start } }),
+      installs.countDocuments({ firstSeen: { $gte: prevStart, $lt: start } }),
+      installs.countDocuments({ firstSeen: { $gte: new Date(now - DAY) } }),
+      installs.aggregate([{ $match: { firstSeen: { $gte: start } } }, { $group: { _id: { d: dayOf('$firstSeen'), p: plat }, n: { $sum: 1 } } }]).toArray(),
+      downloads.aggregate([{ $match: { at: { $gte: start } } }, { $group: { _id: { d: dayOf('$at'), w: { $regexMatch: { input: { $ifNull: ['$source', ''] }, regex: /-win$/ } } }, n: { $sum: 1 } } }]).toArray(),
+      downloads.countDocuments(),
+      downloads.countDocuments({ at: { $gte: start } }),
+      downloads.countDocuments({ at: { $gte: prevStart, $lt: start } }),
+      downloads.aggregate([{ $group: { _id: '$source', n: { $sum: 1 } } }]).toArray(),
+      installs.aggregate([{ $group: { _id: { v: '$appVersion', p: plat }, n: { $sum: 1 } } }, { $sort: { n: -1 } }]).toArray(),
+      installs.aggregate([{ $group: { _id: { a: '$arch', p: plat }, n: { $sum: 1 } } }]).toArray(),
+      installs.aggregate([{ $group: { _id: { o: '$osVersion', p: plat }, n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 10 }]).toArray(),
+      waitlist.countDocuments(),
+      installs.find({}, { projection: { _id: 0, firstSeen: 1, platform: 1, appVersion: 1, osVersion: 1, arch: 1 } }).sort({ firstSeen: -1 }).limit(15).toArray(),
+      devicesCol.aggregate([{ $project: { n: { $size: { $ifNull: ['$phones', []] } } } }, { $group: { _id: null, phones: { $sum: '$n' }, macs: { $sum: { $cond: [{ $gt: ['$n', 0] }, 1, 0] } } } }]).toArray(),
+      devicesCol.countDocuments({ lastSeen: { $gte: new Date(now - 120_000) }, 'phones.0': { $exists: true } }),
+    ]);
+    const series = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now - i * DAY).toISOString().slice(0, 10);
+      const get = (arr, f) => arr.filter(f).reduce((t, x) => t + x.n, 0);
+      series.push({
+        day: d,
+        mac: get(installDays, (x) => x._id.d === d && x._id.p !== 'windows'),
+        windows: get(installDays, (x) => x._id.d === d && x._id.p === 'windows'),
+        dlMac: get(dlDays, (x) => x._id.d === d && !x._id.w),
+        dlWindows: get(dlDays, (x) => x._id.d === d && x._id.w),
+      });
+    }
+    const p = Object.fromEntries(byPlatform.map((x) => [x._id, x.n]));
+    res.set('Cache-Control', 'no-store').json({
+      days, updatedAt: new Date().toISOString(),
+      installs: { total, mac: p.macos || 0, windows: p.windows || 0, inRange, prevRange, today },
+      downloads: { total: dlTotal, inRange: dlRange, prevRange: dlPrev, bySource: Object.fromEntries(dlBySource.map((x) => [x._id || 'other', x.n])) },
+      phones: { paired: (phoneAgg[0] || {}).phones || 0, computers: (phoneAgg[0] || {}).macs || 0, online },
+      windowsWaitlist: waiting,
+      series,
+      versions: byVersion.map((x) => ({ version: x._id.v || 'unknown', platform: x._id.p, n: x.n })),
+      chips: byArch.map((x) => ({ arch: x._id.a || 'unknown', platform: x._id.p, n: x.n })),
+      systems: byOS.map((x) => ({ os: x._id.o || 'unknown', platform: x._id.p, n: x.n })),
+      recent: recent.map((r) => ({ at: r.firstSeen, platform: r.platform || 'macos', version: r.appVersion || '', os: r.osVersion || '', arch: r.arch || '' })),
+    });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Could not load dashboard' }); }
+});
+
 app.get('/v1/stats', async (req, res) => {
   try { res.json(await stats()); } catch (e) { console.error(e); res.status(500).json({ error: 'Could not load stats' }); }
 });
 
-// A tiny page you can open in a browser to see the count.
-app.get('/', async (req, res) => {
-  let s;
-  try { s = await stats(); } catch { return res.status(500).send('Stats unavailable'); }
-  const rows = Object.entries(s.byDay).slice(-14).map(([d, c]) => `<tr><td>${d}</td><td>${c}</td></tr>`).join('') || '<tr><td colspan="2">No installs yet</td></tr>';
-  res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mimo installs</title><style>
-body{font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:32px 16px;background:#F5F9FD;color:#13202F}
-main{max-width:560px;margin:0 auto}h1{font-size:20px;margin:0 0 4px}p{margin:0;color:#4A5B6E}
-.big{font-size:64px;font-weight:800;margin:16px 0 4px;font-variant-numeric:tabular-nums}
-.row{display:flex;flex-wrap:wrap;gap:16px 24px;margin:16px 0 28px}.row div b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:6px 0;border-bottom:1px solid #dde7f0}td:last-child{text-align:right}
-@media (prefers-color-scheme:dark){body{background:#0D1622;color:#E9F1FA}p{color:#9DB0C4}td{border-color:#223247}}
-</style></head><body><main>
-<h1>Mimo installs</h1><p>Updated ${new Date(s.updatedAt).toUTCString()}</p>
-<div class="big">${s.totalInstalls.toLocaleString()}</div><p>Macs that have installed Mimo</p>
-<div class="row"><div><b>${s.last24h}</b>last 24 hours</div><div><b>${s.last7d}</b>last 7 days</div><div><b>${s.last30d}</b>last 30 days</div><div><b>${s.windowsWaiting}</b>waiting for Windows</div></div>
-<div class="row"><div><b>${(s.byPlatform.macos || 0).toLocaleString()}</b>Mac installs</div><div><b>${(s.byPlatform.windows || 0).toLocaleString()}</b>Windows installs</div></div>
-<div class="row"><div><b>${s.downloadClicks.toLocaleString()}</b>download clicks</div><div><b>${s.windowsDownloads.toLocaleString()}</b>of them for Windows</div><div><b>${s.downloads7d}</b>clicks in the last 7 days</div></div>
-<table><tr><td><b>Day</b></td><td><b>New installs</b></td></tr>${rows}</table>
-</main></body></html>`);
-});
+// The stats dashboard
+app.get('/', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'dashboard', 'index.html')); });
+app.use('/dashboard', express.static(path.join(__dirname, 'public', 'dashboard')));
 
 let remoteRouter = null;
 app.use('/v1', (req, res, next) => remoteRouter ? remoteRouter(req, res, next) : res.status(503).json({ error: 'Starting up' }));
@@ -172,6 +210,7 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
   await installs.createIndex({ installId: 1 }, { unique: true });
   await installs.createIndex({ firstSeen: -1 });
   waitlist = client.db(DB_NAME).collection('windows_waitlist');
+  devicesCol = client.db(DB_NAME).collection('devices');
   downloads = client.db(DB_NAME).collection('download_clicks');
   await downloads.createIndex({ at: -1 });
   await waitlist.createIndex({ voterId: 1 }, { unique: true });
