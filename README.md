@@ -37,7 +37,7 @@ A tiny Mac menu bar app that watches your free space every minute and cleans up 
 | Old installers in Downloads (.dmg, .pkg, .zip, .iso) — *off by default* | Moved to the Bin. |
 | Empty the Bin — *off by default* | Permanently deleted. |
 
-He never touches your Documents, Desktop or Photos library, and only cleans the categories you've switched on. Your files never leave your Mac. Mimo makes one anonymous ping on first launch so installs can be counted (a random install ID, the app version, the macOS version and the chip type; turn it off in Settings › Privacy). If you pair a phone, he also shares storage totals, categories and his activity with that phone through Mimo's server.
+He never touches your Documents, Desktop or Photos library, and only cleans the categories you've switched on. Your files never leave your computer. Mimo sends anonymous counts so his impact can be measured: one ping on first launch (a random install ID, app version, system version and chip type) and, after each clean, how much space he cleared per category. Never file names, folder names or anything you made. Turn it off in Settings › Privacy. If you pair a phone, he also shares storage totals, categories and his activity with that phone through Mimo's server.
 
 ## Install
 

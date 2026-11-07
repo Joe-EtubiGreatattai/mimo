@@ -30,7 +30,7 @@ const calls = [];
 const fakeFetch = async (url, opts = {}) => {
   calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null, headers: opts.headers });
   const ok = (data) => ({ ok: true, status: 200, json: async () => data });
-  if (url.endsWith('/installs')) return ok({ ok: true });
+  if (url.endsWith('/installs') || url.endsWith('/cleanups')) return ok({ ok: true });
   if (url.endsWith('/pair/start')) return ok({ code: 'ABC234' });
   if (url.endsWith('/device/status')) return ok({ ok: true, phones: 1 });
   if (url.endsWith('/device/commands')) return ok({ commands: calls.filter((c) => c.url.endsWith('/device/commands')).length === 1 ? [{ id: 'c1', type: 'setThreshold', args: { gb: 25 } }] : [], phones: 1 });
@@ -74,6 +74,10 @@ const notes = []; e.on('notify', (n) => notes.push(n.body));
   assert(!fs.existsSync(path.join(process.env.TEMP, 'old.tmp')), 'old temp file removed');
   assert(fs.existsSync(path.join(home, 'Downloads/setup-old.exe')), 'unselected installer kept');
   assert(fs.existsSync(path.join(home, 'Documents/thesis.docx')), 'documents untouched');
+  const report = calls.find((c) => c.url.endsWith('/cleanups'));
+  assert(report && report.body.bytes >= 5_000_00 && report.body.trigger === 'review', 'cleanup reported');
+  assert(report.body.categories.every((c) => !/thesis|IMG-/.test(JSON.stringify(c))), 'cleanup report has no file names');
+  assert(report.body.categories.some((c) => c.id === 'whatsapp'), 'cleanup report has categories');
   // custom place
   e.addCustomPlace(path.join(home, 'Videos'), false);
   assert(e.placesAll().some((p) => p.custom), 'custom place added');

@@ -98,6 +98,22 @@ table.data th,table.data td{text-align:right;padding:6px 4px;border-bottom:1px s
 table.data th:first-child,table.data td:first-child{text-align:left}
 .tablewrap{max-height:260px;overflow:auto}
 
+/* space cleared */
+.cleared{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:22px;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--good) 9%,var(--card)) 0%,var(--card) 55%)}
+.cl-big{font:800 clamp(44px,6vw,68px)/1 var(--body);letter-spacing:-2px;margin:8px 0 6px}
+.cl-big small{font-size:.42em;letter-spacing:0;margin-left:6px;color:var(--ink-2);font-weight:700}
+.cl-sub{color:var(--ink-2);font-size:14px}
+.cl-delta{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-weight:700;font-size:13px;padding:5px 10px;border-radius:999px;background:var(--sky-soft);color:var(--ink-2)}
+.cl-delta.up{color:var(--good)}.cl-delta.up::before{content:"▲";font-size:9px}.cl-delta.down::before{content:"▼";font-size:9px}
+.cl-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:18px}
+.cl-stat{background:color-mix(in srgb,var(--paper) 70%,transparent);border:1px solid var(--line);border-radius:14px;padding:10px 12px;min-width:0}
+.cl-stat b{display:block;font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cl-stat span{font-size:12.5px;color:var(--ink-2)}
+.eyebrow-ic{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:10px;background:var(--good);color:#fff;margin-right:8px;vertical-align:middle}
+.eyebrow-ic svg{width:16px;height:16px}
+@media (max-width:1000px){.cleared{grid-template-columns:minmax(0,1fr)}}
+
 /* donut */
 .donut{display:flex;align-items:center;gap:18px}
 .donut svg{width:150px;height:150px;flex:none;transform:rotate(-90deg)}
@@ -197,6 +213,31 @@ footer a{color:inherit}
 </header>
 
 <main class="wrap">
+  <section class="card cleared">
+    <div>
+      <h2><span class="eyebrow-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg></span>Space Mimo has cleared</h2>
+      <div class="cl-big num" id="clTotal">–</div>
+      <div class="cl-sub" id="clSub">across all computers</div>
+      <span class="cl-delta" id="clDelta">–</span>
+      <div class="cl-stats">
+        <div class="cl-stat"><b class="num" id="clRange">–</b><span id="clRangeLbl">in the last 30 days</span></div>
+        <div class="cl-stat"><b class="num" id="clAvg">–</b><span>per clean, on average</span></div>
+        <div class="cl-stat"><b class="num" id="clMac">–</b><span>on Macs</span></div>
+        <div class="cl-stat"><b class="num" id="clWin">–</b><span>on Windows PCs</span></div>
+      </div>
+    </div>
+    <div style="min-width:0">
+      <header>
+        <div><h2>Cleared per day</h2><div class="hint" id="clHint">Space cleared, last 30 days</div></div>
+        <div class="right">
+          <div class="legend"><span><i style="background:var(--mac)"></i>Mac</span><span><i style="background:var(--win)"></i>Windows</span></div>
+          <button class="tbtn" type="button" data-table="clChart">Table</button>
+        </div>
+      </header>
+      <div class="chart" id="clChart"></div>
+    </div>
+  </section>
+
   <section class="card span2" style="animation-delay:.05s">
     <header>
       <div><h2>Installs per day</h2><div class="hint" id="instHint">New computers running Mimo</div></div>
@@ -254,6 +295,16 @@ footer a{color:inherit}
     <div class="hbars" id="systems"></div>
   </section>
 
+  <section class="card" style="animation-delay:.38s">
+    <header><div><h2>What gets cleared</h2><div class="hint">Biggest kinds of junk, all time</div></div></header>
+    <div class="hbars" id="clCats"></div>
+  </section>
+
+  <section class="card" style="animation-delay:.39s">
+    <header><div><h2>How cleans start</h2><div class="hint">Who pressed the button</div></div></header>
+    <div class="hbars" id="clTriggers"></div>
+  </section>
+
   <section class="card" style="animation-delay:.4s">
     <header><div><h2>Which button people click</h2><div class="hint">All download clicks</div></div></header>
     <div class="hbars" id="sources"></div>
@@ -274,6 +325,7 @@ footer a{color:inherit}
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   const nf = (n) => Number(n || 0).toLocaleString();
   const ago = (t) => { const s = Math.max(0, Math.round((Date.now() - new Date(t)) / 1000)); if (s < 45) return 'just now'; if (s < 3600) return Math.round(s / 60) + ' min ago'; if (s < 86400) return Math.round(s / 3600) + ' h ago'; return Math.round(s / 86400) + ' d ago'; };
+  const bytes = (b) => { if (!b) return '0 GB'; const u = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']; let i = 0, n = b; while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; } return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + ' ' + u[i]; };
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   let days = 30, D = null, lastRecent = null, shown = {}, timer = null, tables = {};
   try { const d = Number(localStorage.getItem('mimoStatsDays')); if ([7, 30, 90].includes(d)) days = d; } catch (e) {}
@@ -296,7 +348,8 @@ footer a{color:inherit}
 
   // ---------- stacked bar chart (one axis, 2px gaps, 4px rounded tops, hover tooltip) ----------
   function bars(el, rows, keys, labels) {
-    const W = el.clientWidth, H = el.clientHeight, padL = 34, padB = 26, padT = 8, padR = 4;
+    const fv = labels.fmt || nf;
+    const W = el.clientWidth, H = el.clientHeight, padL = labels.axis ? 54 : 34, padB = 26, padT = 8, padR = 4;
     const iw = W - padL - padR, ih = H - padT - padB;
     const totals = rows.map((r) => keys.reduce((t, k) => t + r[k], 0));
     const max = Math.max(1, ...totals);
@@ -307,7 +360,7 @@ footer a{color:inherit}
     const colors = keys.map((k) => css(k === keys[0] ? '--mac' : '--win'));
     const surface = css('--card');
     let svg = `<svg role="img" aria-label="${esc(labels.title)}"><g class="axis">`;
-    for (let v = 0; v <= top; v += step) svg += `<line class="${v ? 'gridline' : 'baseline'}" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    for (let v = 0; v <= top; v += step) svg += `<line class="${v ? 'gridline' : 'baseline'}" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${labels.axis ? labels.axis(v) : v}</text>`;
     const every = Math.ceil(n / Math.max(2, Math.floor(iw / 64)));
     rows.forEach((r, i) => { if (i % every === 0 || i === n - 1) { const d = new Date(r.day + 'T00:00:00'); svg += `<text x="${padL + slot * i + slot / 2}" y="${H - 6}" text-anchor="middle">${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}</text>`; } });
     svg += '</g>';
@@ -337,7 +390,7 @@ footer a{color:inherit}
         const i = +g.dataset.i, r = rows[i];
         s.classList.add('hovering'); el.querySelectorAll('.col.on').forEach((c) => c.classList.remove('on')); g.classList.add('on');
         const d = new Date(r.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-        tip.innerHTML = `<b>${d}</b>` + keys.map((k, j) => `<div class="r"><span><i style="background:${colors[j]}"></i>${labels.names[j]}</span><strong class="num">${nf(r[k])}</strong></div>`).join('') + `<div class="r" style="margin-top:3px;border-top:1px solid var(--line);padding-top:3px"><span>Total</span><strong class="num">${nf(totals[i])}</strong></div>`;
+        tip.innerHTML = `<b>${d}</b>` + keys.map((k, j) => `<div class="r"><span><i style="background:${colors[j]}"></i>${labels.names[j]}</span><strong class="num">${fv(r[k])}</strong></div>`).join('') + `<div class="r" style="margin-top:3px;border-top:1px solid var(--line);padding-top:3px"><span>Total</span><strong class="num">${fv(totals[i])}</strong></div>`;
         const cx = padL + slot * i + slot / 2;
         tip.style.left = Math.min(Math.max(cx, 80), W - 80) + 'px'; tip.style.top = Math.max(y(totals[i]) - 8, 64) + 'px';
         tip.classList.add('on');
@@ -345,13 +398,18 @@ footer a{color:inherit}
     });
     s.addEventListener('mouseleave', () => { s.classList.remove('hovering'); tip.classList.remove('on'); el.querySelectorAll('.col.on').forEach((c) => c.classList.remove('on')); });
   }
-  function table(el, rows, keys, names) {
-    el.innerHTML = `<div class="tablewrap"><table class="data"><thead><tr><th>Day</th>${names.map((n) => `<th>${n}</th>`).join('')}<th>Total</th></tr></thead><tbody>${rows.slice().reverse().map((r) => `<tr><td>${new Date(r.day + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}</td>${keys.map((k) => `<td class="num">${nf(r[k])}</td>`).join('')}<td class="num"><b>${nf(keys.reduce((t, k) => t + r[k], 0))}</b></td></tr>`).join('')}</tbody></table></div>`;
+  function table(el, rows, keys, names, fv = nf) {
+    el.innerHTML = `<div class="tablewrap"><table class="data"><thead><tr><th>Day</th>${names.map((n) => `<th>${n}</th>`).join('')}<th>Total</th></tr></thead><tbody>${rows.slice().reverse().map((r) => `<tr><td>${new Date(r.day + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}</td>${keys.map((k) => `<td class="num">${fv(r[k])}</td>`).join('')}<td class="num"><b>${fv(keys.reduce((t, k) => t + r[k], 0))}</b></td></tr>`).join('')}</tbody></table></div>`;
   }
   function drawCharts() {
     if (!D) return;
     const inst = ['mac', 'windows'], dl = ['dlMac', 'dlWindows'];
     tables.instChart ? table($('instChart'), D.series, inst, ['Mac', 'Windows']) : bars($('instChart'), D.series, inst, { title: 'Installs per day by platform', names: ['Mac', 'Windows'], empty: 'No installs in this period yet' });
+    // cleared per day, plotted in GB
+    const unit = Math.max(...D.series.map((r) => (r.clearedMac || 0) + (r.clearedWindows || 0)), 0) >= 1e12 ? 1e12 : 1e9, uName = unit === 1e12 ? 'TB' : 'GB';
+    const cl = D.series.map((r) => ({ day: r.day, mac: (r.clearedMac || 0) / unit, windows: (r.clearedWindows || 0) / unit }));
+    const gfmt = (v) => bytes(v * unit);
+    tables.clChart ? table($('clChart'), cl, inst, ['Mac', 'Windows'], gfmt) : bars($('clChart'), cl, inst, { title: 'Space cleared per day by platform', names: ['Mac', 'Windows'], empty: 'Nothing cleared in this period yet', fmt: gfmt, axis: (v) => (v % 1 ? v.toFixed(1) : v) + ' ' + uName });
     tables.dlChart ? table($('dlChart'), D.series, dl, ['Mac', 'Windows']) : bars($('dlChart'), D.series, dl, { title: 'Download clicks per day by platform', names: ['Mac', 'Windows'], empty: 'No download clicks in this period yet' });
   }
   document.querySelectorAll('[data-table]').forEach((b) => b.onclick = () => { const k = b.dataset.table; tables[k] = !tables[k]; b.textContent = tables[k] ? 'Chart' : 'Table'; drawCharts(); });
@@ -418,6 +476,24 @@ footer a{color:inherit}
     $('arcWin').setAttribute('stroke-dashoffset', `${-lm}`);
     countTo($('donutTotal'), I.mac + I.windows, 'donut');
     $('split').innerHTML = [['Mac', I.mac, 'var(--mac)'], ['Windows', I.windows, 'var(--win)']].map(([n, v, c]) => `<div><i style="background:${c}"></i>${n}<span class="n num">${nf(v)}</span><span class="p num">${pct(v, I.mac + I.windows)}%</span></div>`).join('');
+
+    const CL = D.cleared || { total: 0, cleans: 0, computers: 0, inRange: 0, prevRange: 0, mac: 0, windows: 0, categories: [], triggers: {}, cleansInRange: 0 };
+    const tb = bytes(CL.total).split(' ');
+    $('clTotal').innerHTML = `${esc(tb[0])}<small>${esc(tb[1] || '')}</small>`;
+    $('clSub').textContent = CL.cleans ? `across ${nf(CL.cleans)} clean${CL.cleans === 1 ? '' : 's'} on ${nf(CL.computers)} computer${CL.computers === 1 ? '' : 's'}` : 'Mimo hasn’t cleaned anything yet. It will show here the moment he does.';
+    const cd = !CL.prevRange ? (CL.inRange ? { t: 'All new this period', c: 'up' } : { t: 'Nothing this period yet', c: '' }) : (() => { const c = Math.round(((CL.inRange - CL.prevRange) / CL.prevRange) * 100); return { t: `${Math.abs(c)}% vs previous ${days} days`, c: c >= 0 ? 'up' : 'down' }; })();
+    $('clDelta').textContent = cd.t; $('clDelta').className = 'cl-delta ' + cd.c;
+    $('clRange').textContent = bytes(CL.inRange); $('clRangeLbl').textContent = `in the last ${days} days`;
+    $('clAvg').textContent = bytes(CL.cleans ? CL.total / CL.cleans : 0);
+    $('clMac').textContent = bytes(CL.mac); $('clWin').textContent = bytes(CL.windows);
+    $('clHint').textContent = `Space cleared, last ${days} days`;
+    const catMax = Math.max(...CL.categories.map((c) => c.bytes), 1);
+    $('clCats').innerHTML = '';
+    hbars($('clCats'), CL.categories.map((c) => ({ label: esc(c.name), n: c.bytes, segs: [{ n: c.mac, color: 'var(--mac)' }, { n: c.windows, color: 'var(--win)' }] })), catMax, 'Nothing cleared yet');
+    $('clCats').querySelectorAll('.t b').forEach((b, i) => b.textContent = bytes(CL.categories[i].bytes));
+    const trigName = { review: 'Approved on the Review screen', auto: 'Cleaned automatically', phone: 'Approved from a phone', manual: 'Clean now button' };
+    const trig = Object.entries(CL.triggers).map(([k, v]) => ({ k, ...v })).sort((a, b) => b.cleans - a.cleans);
+    hbars($('clTriggers'), trig.map((t) => ({ label: esc(trigName[t.k] || 'Other'), n: t.cleans, segs: [{ n: t.cleans, color: t.k === 'phone' ? 'var(--good)' : 'var(--mac)' }] })), Math.max(...trig.map((t) => t.cleans), 1), 'No cleans yet');
 
     drawCharts();
     feed();

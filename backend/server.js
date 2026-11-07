@@ -22,7 +22,7 @@ app.use('/app', express.static(path.join(__dirname, 'public/app'), {
   setHeaders: (res, p) => { if (p.endsWith('sw.js') || p.endsWith('.html')) res.set('Cache-Control', 'no-cache'); }
 }));
 
-let installs, waitlist, downloads;
+let installs, waitlist, downloads, cleanups;
 
 // The landing page (GitHub Pages) calls the Windows waitlist from the browser.
 const ALLOWED_ORIGINS = ['https://joe-etubigreatattai.github.io'];
@@ -73,6 +73,24 @@ app.post('/v1/installs', rateLimit, async (req, res) => {
     console.error(e);
     res.status(500).json({ error: 'Could not record install' });
   }
+});
+
+// Space cleared: Mimo reports how much each clean cleared, by category. No file or folder names.
+app.post('/v1/cleanups', rateLimit, async (req, res) => {
+  try {
+    const { installId, platform, appVersion, arch, trigger, bytes, categories } = req.body || {};
+    const b = Number(bytes);
+    if (!UUID.test(installId || '') || !(b > 0 && b < 20e12)) return res.status(400).json({ error: 'Bad cleanup report' });
+    const cats = (Array.isArray(categories) ? categories : []).slice(0, 30)
+      .filter((c) => c && /^[\w:-]{1,40}$/.test(String(c.id || '')) && Number(c.bytes) > 0 && Number(c.bytes) < 20e12)
+      .map((c) => ({ id: String(c.id), name: clean(c.name, 50) || String(c.id), bytes: Number(c.bytes) }));
+    await cleanups.insertOne({
+      at: new Date(), installId: installId.toLowerCase(), bytes: b, categories: cats,
+      platform: platform === 'windows' ? 'windows' : 'macos', appVersion: clean(appVersion), arch: clean(arch, 12),
+      trigger: ['auto', 'review', 'phone', 'manual'].includes(trigger) ? trigger : 'other',
+    });
+    res.status(201).json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Could not record cleanup' }); }
 });
 
 // Download button clicks. The page sends these with sendBeacon (plain text), so accept text too.
@@ -142,7 +160,7 @@ app.get('/v1/dashboard', async (req, res) => {
     const start = new Date(now - days * DAY), prevStart = new Date(now - 2 * days * DAY);
     const plat = { $ifNull: ['$platform', 'macos'] };
     const dayOf = (f) => ({ $dateToString: { format: '%Y-%m-%d', date: f } });
-    const [total, byPlatform, inRange, prevRange, today, installDays, dlDays, dlTotal, dlRange, dlPrev, dlBySource, byVersion, byArch, byOS, waiting, recent, phoneAgg, online] = await Promise.all([
+    const [total, byPlatform, inRange, prevRange, today, installDays, dlDays, dlTotal, dlRange, dlPrev, dlBySource, byVersion, byArch, byOS, waiting, recent, phoneAgg, online, clAll, clRange, clPrev, clDays, clCats, clTriggers, clPlatform] = await Promise.all([
       installs.countDocuments(),
       installs.aggregate([{ $group: { _id: plat, n: { $sum: 1 } } }]).toArray(),
       installs.countDocuments({ firstSeen: { $gte: start } }),
@@ -161,6 +179,13 @@ app.get('/v1/dashboard', async (req, res) => {
       installs.find({}, { projection: { _id: 0, firstSeen: 1, platform: 1, appVersion: 1, osVersion: 1, arch: 1 } }).sort({ firstSeen: -1 }).limit(15).toArray(),
       devicesCol.aggregate([{ $project: { n: { $size: { $ifNull: ['$phones', []] } } } }, { $group: { _id: null, phones: { $sum: '$n' }, macs: { $sum: { $cond: [{ $gt: ['$n', 0] }, 1, 0] } } } }]).toArray(),
       devicesCol.countDocuments({ lastSeen: { $gte: new Date(now - 120_000) }, 'phones.0': { $exists: true } }),
+      cleanups.aggregate([{ $group: { _id: null, bytes: { $sum: '$bytes' }, n: { $sum: 1 }, computers: { $addToSet: '$installId' } } }, { $project: { bytes: 1, n: 1, computers: { $size: '$computers' } } }]).toArray(),
+      cleanups.aggregate([{ $match: { at: { $gte: start } } }, { $group: { _id: null, bytes: { $sum: '$bytes' }, n: { $sum: 1 } } }]).toArray(),
+      cleanups.aggregate([{ $match: { at: { $gte: prevStart, $lt: start } } }, { $group: { _id: null, bytes: { $sum: '$bytes' } } }]).toArray(),
+      cleanups.aggregate([{ $match: { at: { $gte: start } } }, { $group: { _id: { d: dayOf('$at'), p: '$platform' }, bytes: { $sum: '$bytes' } } }]).toArray(),
+      cleanups.aggregate([{ $unwind: '$categories' }, { $group: { _id: '$categories.id', name: { $last: '$categories.name' }, bytes: { $sum: '$categories.bytes' }, mac: { $sum: { $cond: [{ $eq: ['$platform', 'windows'] }, 0, '$categories.bytes'] } }, n: { $sum: 1 } } }, { $sort: { bytes: -1 } }, { $limit: 10 }]).toArray(),
+      cleanups.aggregate([{ $group: { _id: '$trigger', n: { $sum: 1 }, bytes: { $sum: '$bytes' } } }]).toArray(),
+      cleanups.aggregate([{ $group: { _id: '$platform', bytes: { $sum: '$bytes' } } }]).toArray(),
     ]);
     const series = [];
     for (let i = days - 1; i >= 0; i--) {
@@ -172,6 +197,8 @@ app.get('/v1/dashboard', async (req, res) => {
         windows: get(installDays, (x) => x._id.d === d && x._id.p === 'windows'),
         dlMac: get(dlDays, (x) => x._id.d === d && !x._id.w),
         dlWindows: get(dlDays, (x) => x._id.d === d && x._id.w),
+        clearedMac: clDays.filter((x) => x._id.d === d && x._id.p !== 'windows').reduce((t, x) => t + x.bytes, 0),
+        clearedWindows: clDays.filter((x) => x._id.d === d && x._id.p === 'windows').reduce((t, x) => t + x.bytes, 0),
       });
     }
     const p = Object.fromEntries(byPlatform.map((x) => [x._id, x.n]));
@@ -181,6 +208,13 @@ app.get('/v1/dashboard', async (req, res) => {
       downloads: { total: dlTotal, inRange: dlRange, prevRange: dlPrev, bySource: Object.fromEntries(dlBySource.map((x) => [x._id || 'other', x.n])) },
       phones: { paired: (phoneAgg[0] || {}).phones || 0, computers: (phoneAgg[0] || {}).macs || 0, online },
       windowsWaitlist: waiting,
+      cleared: {
+        total: (clAll[0] || {}).bytes || 0, cleans: (clAll[0] || {}).n || 0, computers: (clAll[0] || {}).computers || 0,
+        inRange: (clRange[0] || {}).bytes || 0, cleansInRange: (clRange[0] || {}).n || 0, prevRange: (clPrev[0] || {}).bytes || 0,
+        mac: (clPlatform.find((x) => x._id === 'macos') || {}).bytes || 0, windows: (clPlatform.find((x) => x._id === 'windows') || {}).bytes || 0,
+        categories: clCats.map((c) => ({ id: c._id, name: c.name, bytes: c.bytes, mac: c.mac, windows: c.bytes - c.mac, cleans: c.n })),
+        triggers: Object.fromEntries(clTriggers.map((t) => [t._id, { cleans: t.n, bytes: t.bytes }])),
+      },
       series,
       versions: byVersion.map((x) => ({ version: x._id.v || 'unknown', platform: x._id.p, n: x.n })),
       chips: byArch.map((x) => ({ arch: x._id.a || 'unknown', platform: x._id.p, n: x.n })),
@@ -211,6 +245,8 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
   await installs.createIndex({ firstSeen: -1 });
   waitlist = client.db(DB_NAME).collection('windows_waitlist');
   devicesCol = client.db(DB_NAME).collection('devices');
+  cleanups = client.db(DB_NAME).collection('cleanups');
+  await cleanups.createIndex({ at: -1 });
   downloads = client.db(DB_NAME).collection('download_clicks');
   await downloads.createIndex({ at: -1 });
   await waitlist.createIndex({ voterId: 1 }, { unique: true });

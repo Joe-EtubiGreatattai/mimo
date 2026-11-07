@@ -213,8 +213,8 @@
         <p class="sub" style="margin:10px 0 0">Paired phones see your storage totals, what I found by category and my activity. File names never leave your PC.</p>
       </section>
       <section class="card"><h2>${icon('lock')}Privacy &amp; startup</h2>
-        <div class="row"><div class="grow"><div class="name">Count my install</div><div class="sub">One anonymous ping when Mimo is first installed: a random ID, app version, Windows version and chip type. Nothing about your files.</div></div>
-          <span class="switch"><input type="checkbox" id="countInstall" aria-label="Count my install" ${st.countInstall ? 'checked' : ''}><span class="track"></span><span class="knob"></span></span></div>
+        <div class="row"><div class="grow"><div class="name">Share anonymous counts</div><div class="sub">Counts this install once, and how much space each clean clears by category. Never file names, folder names or anything you made.</div></div>
+          <span class="switch"><input type="checkbox" id="countInstall" aria-label="Share anonymous counts" ${st.countInstall ? 'checked' : ''}><span class="track"></span><span class="knob"></span></span></div>
         <div class="row"><div class="grow"><div class="name">Start Mimo when I sign in</div><div class="sub">He waits quietly in the system tray.</div></div>
           <span class="switch"><input type="checkbox" id="startAtLogin" aria-label="Start Mimo when I sign in" ${st.startAtLogin ? 'checked' : ''}><span class="track"></span><span class="knob"></span></span></div>
       </section>

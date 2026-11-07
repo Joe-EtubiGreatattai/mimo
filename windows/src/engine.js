@@ -242,7 +242,7 @@ class Engine extends EventEmitter {
       } else {
         this.add('alert', `Low on space (${this.free} GB) — started cleaning`);
         this.notify(`Only ${this.free} GB left — fetching the broom 🧹`);
-        this.scan().then(() => this.clean(this.findings.map((f) => f.id)));
+        this.scan().then(() => this.clean(this.findings.map((f) => f.id), 'auto'));
       }
       this.changed();
       return;
@@ -286,15 +286,15 @@ class Engine extends EventEmitter {
     if (this.s.askFirst) return this.prepareReview('manual');
     this.add('sparkles', 'You asked me to clean up');
     this.notify('On it! Cleaning up now… 🧹');
-    return this.scan().then(() => this.clean(this.findings.map((f) => f.id)));
+    return this.scan().then(() => this.clean(this.findings.map((f) => f.id), 'manual'));
   }
-  approve(ids) {
+  approve(ids, trigger = 'review') {
     const valid = new Set((ids || [...this.selected]).filter((id) => this.findings.some((f) => f.id === id)));
     if (!valid.size) return false;
     const bytes = this.findings.filter((f) => valid.has(f.id)).reduce((t, f) => t + f.bytes, 0);
     this.pendingReview = false;
     this.add('thumb', `You approved ${fmt(bytes)} for cleaning`);
-    this.clean([...valid]);
+    this.clean([...valid], trigger);
     return true;
   }
   dismiss() { this.pendingReview = false; this.lastNudge = Date.now(); this.add('hand', 'You said not now — I\'ll ask again if space stays low'); }
@@ -313,33 +313,41 @@ class Engine extends EventEmitter {
     this.isScanning = false; this.changed();
   }
 
-  async clean(ids) {
+  async clean(ids, trigger = 'review') {
     if (this.isCleaning) return;
     const work = this.findings.filter((f) => ids.includes(f.id));
     if (!work.length) { this.add('check', 'Nothing to clean'); return; }
     this.isCleaning = true; this.changed();
     const before = this.readDisk();
-    let removed = 0;
+    let removed = 0, n = 0;
+    const cleared = [];
     for (const f of work) {
       this.cleaningStep = `Clearing ${f.place.name.toLowerCase()}…`; this.changed();
-      if (f.place.mode === 'recycleBin') { try { await this.emptyRecycleBin(); removed += f.bytes; } catch {} continue; }
-      for (const item of f.items) {
+      let bytes = 0;
+      if (f.place.mode === 'recycleBin') { try { await this.emptyRecycleBin(); bytes = f.bytes; } catch {} }
+      else for (const item of f.items) {
         try {
-          if (f.place.permanent) await fsp.rm(item.path, { recursive: true, force: true, maxRetries: 1 });
-          else await this.trash(item.path);
-          removed += item.bytes;
+          if (f.place.permanent) {
+            await fsp.rm(item.path, { recursive: true, force: true, maxRetries: 1 });
+            if (fs.existsSync(item.path)) continue; // locked files stay behind
+          } else await this.trash(item.path);
+          bytes += item.bytes;
         } catch { /* in use or protected: skip */ }
-        if (removed % 50 === 0) await yieldNow();
+        if (++n % 50 === 0) await yieldNow();
       }
+      removed += bytes;
+      // Built-in places by id; your own folders only as "Your folders" (never their names).
+      if (bytes > 0) cleared.push({ id: f.place.custom ? 'custom' : f.place.id, name: f.place.custom ? 'Your folders' : f.place.name, bytes });
     }
+    this.reportCleanup(removed, cleared, trigger);
     const after = this.readDisk();
     const freed = Math.max(after - before, Math.round(removed / GB));
     this.lastFreed = freed; this.totalFreed += freed;
     this.isCleaning = false; this.cleaningStep = '';
     this.lastReport = Date.now();
     this.findings = this.findings.filter((f) => !ids.includes(f.id)); this.selected.clear();
-    this.add('sparkles', `Cleaned ${work.map((f) => f.place.name.toLowerCase()).join(', ')} — freed ${freed} GB`);
-    this.notify(`Good boy report 🐾 Freed ${freed} GB — you now have ${this.free} GB free.`);
+    this.add('sparkles', `Cleaned ${work.map((f) => f.place.name.toLowerCase()).join(', ')} — cleared ${fmt(removed)}`);
+    this.notify(`Good boy report 🐾 Cleared ${fmt(removed)} — you now have ${this.free} GB free.`);
     this.scan();
   }
 
@@ -408,7 +416,15 @@ class Engine extends EventEmitter {
     await this.scan();
   }
 
-  // ---------- install count ----------
+  // ---------- anonymous counts ----------
+  async reportCleanup(bytes, categories, trigger) {
+    if (!this.s.countInstall || !bytes || !this.fetch) return;
+    try {
+      await this.fetch(API + '/cleanups', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ installId: this.s.installId, platform: this.platform, appVersion: this.appVersion, arch: process.arch, trigger, bytes, categories }) });
+    } catch {}
+  }
+
   async reportInstall() {
     if (!this.s.countInstall || this.s.installReported || !this.fetch) return;
     try {
@@ -476,7 +492,7 @@ class Engine extends EventEmitter {
       case 'notify': this.notify('Hello from your phone 📱 ' + this.friendlyLine()); return [true, 'Notification sent to your PC'];
       case 'scan': this.add('phone', 'Your phone asked me to look for things to clean'); this.prepareReview('manual'); return [true, 'Looking for things to clean'];
       case 'clean': {
-        const ok = this.approve(args.ids || []);
+        const ok = this.approve(args.ids || [], 'phone');
         return ok ? [true, 'Cleaning started'] : [false, 'Nothing to clean right now. Tap Scan first.'];
       }
       case 'dismiss': this.dismiss(); return [true, 'OK, not now'];

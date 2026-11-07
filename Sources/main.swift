@@ -266,6 +266,27 @@ final class Mimo: ObservableObject {
         let new = UUID().uuidString.lowercased(); d.set(new, forKey: "installId"); return new
     }
 
+    /// Anonymous count of how much space a clean cleared, so Mimo's total impact can be shown. Same switch as the install count.
+    func reportCleanup(bytes: Int64, categories: [(id: String, name: String, bytes: Int64)], trigger: String) {
+        guard countInstall, bytes > 0 else { return }
+        #if arch(arm64)
+        let arch = "arm64"
+        #else
+        let arch = "x86_64"
+        #endif
+        let body: [String: Any] = [
+            "installId": installId, "platform": "macos", "arch": arch, "trigger": trigger,
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+            "bytes": bytes,
+            "categories": categories.map { ["id": $0.id, "name": $0.name, "bytes": $0.bytes] as [String: Any] },
+        ]
+        var req = URLRequest(url: URL(string: "https://mimo.techtree.lifestyle/v1/cleanups")!, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: req).resume()
+    }
+
     func reportInstallIfNeeded() {
         guard countInstall, !d.bool(forKey: "installReported"),
               Date().timeIntervalSince(lastInstallAttempt) > 3600 else { return }
@@ -382,7 +403,7 @@ final class Mimo: ObservableObject {
             } else {
                 add("exclamationmark.triangle.fill", "Low on space (\(freeGB) GB) — started cleaning")
                 notify("Only \(freeGB) GB left — fetching the broom 🧹")
-                scan { self.clean(ids: Set(self.findings.map { $0.id })) }
+                scan { self.clean(ids: Set(self.findings.map { $0.id }), trigger: "auto") }
             }
             return
         }
@@ -537,15 +558,15 @@ final class Mimo: ObservableObject {
         else {
             add("sparkles", "You asked me to clean up")
             notify("On it! Cleaning up now… 🧹")
-            scan { self.clean(ids: Set(self.findings.map { $0.id })) }
+            scan { self.clean(ids: Set(self.findings.map { $0.id }), trigger: "manual") }
         }
     }
 
-    func approve() {
+    func approve(trigger: String = "review") {
         let ids = selected
         pendingReview = false
         add("hand.thumbsup.fill", "You approved \(fmt(selectedBytes)) for cleaning")
-        clean(ids: ids)
+        clean(ids: ids, trigger: trigger)
     }
 
     func dismissReview() {
@@ -631,7 +652,7 @@ final class Mimo: ObservableObject {
 
     // MARK: cleaning
 
-    func clean(ids: Set<String>) {
+    func clean(ids: Set<String>, trigger: String = "review") {
         guard !isCleaning else { return }
         let work = findings.filter { ids.contains($0.id) }
         guard !work.isEmpty else { add("checkmark.circle", "Nothing to clean"); return }
@@ -640,13 +661,22 @@ final class Mimo: ObservableObject {
         let before = freeGB
         DispatchQueue.global(qos: .utility).async {
             let fm = FileManager.default
+            var cleared: [(id: String, name: String, bytes: Int64)] = []
             for f in work {
                 DispatchQueue.main.async { self.cleaningStep = "Clearing \(f.target.name.lowercased())…" }
+                var bytes: Int64 = 0
                 for item in f.items {
-                    if f.target.permanent { try? fm.removeItem(at: item.url) }
-                    else { try? fm.trashItem(at: item.url, resultingItemURL: nil) }
+                    do {
+                        if f.target.permanent { try fm.removeItem(at: item.url) }
+                        else { try fm.trashItem(at: item.url, resultingItemURL: nil) }
+                        bytes += item.bytes
+                    } catch { /* in use or protected: skip */ }
                 }
+                // Report built-in places by id; your own folders only as "Your folders" (never their names).
+                if bytes > 0 { cleared.append((f.target.custom ? "custom" : f.target.id, f.target.custom ? "Your folders" : f.target.name, bytes)) }
             }
+            let clearedTotal = cleared.reduce(Int64(0)) { $0 + $1.bytes }
+            self.reportCleanup(bytes: clearedTotal, categories: cleared, trigger: trigger)
             DispatchQueue.main.async {
                 self.readDisk()
                 let freed = max(self.freeGB - before, 0)
@@ -656,8 +686,8 @@ final class Mimo: ObservableObject {
                 self.findings.removeAll { ids.contains($0.id) }
                 self.selected = []
                 let names = work.map { $0.target.name.lowercased() }.joined(separator: ", ")
-                self.add("checkmark.seal.fill", "Cleaned \(names) — freed \(freed) GB")
-                self.notify("Good boy report 🐾 Freed \(freed) GB — you now have \(self.freeGB) GB free.")
+                self.add("checkmark.seal.fill", "Cleaned \(names) — cleared \(fmt(clearedTotal))")
+                self.notify("Good boy report 🐾 Cleared \(fmt(clearedTotal)) — you now have \(self.freeGB) GB free.")
                 self.scan()
             }
         }
@@ -797,7 +827,7 @@ final class Mimo: ObservableObject {
             guard !valid.isEmpty else { return (false, "Nothing to clean right now. Tap Find things to clean first.") }
             selected = valid
             add("iphone", "Your phone approved cleaning \(fmt(selectedBytes))")
-            approve()
+            approve(trigger: "phone")
             return (true, "Cleaning started")
         case "dismiss":
             dismissReview()
@@ -1350,8 +1380,8 @@ struct SettingsTab: View {
                 section("Privacy") {
                     Toggle(isOn: $mimo.countInstall) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Count my install")
-                            Text("Sends one anonymous ping when Mimo is first installed: a random ID, app version, macOS version and chip type. Nothing about your files.")
+                            Text("Share anonymous counts")
+                            Text("Counts this install once, and how much space each clean clears by category. Never file names, folder names or anything you made.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }.toggleStyle(.checkbox)
