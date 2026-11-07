@@ -15,11 +15,11 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '4kb' }));
 
-let installs, waitlist;
+let installs, waitlist, downloads;
 
 // The landing page (GitHub Pages) calls the Windows waitlist from the browser.
 const ALLOWED_ORIGINS = ['https://joe-etubigreatattai.github.io'];
-app.use('/v1/windows', (req, res, next) => {
+app.use(['/v1/windows', '/v1/downloads'], (req, res, next) => {
   const o = req.headers.origin;
   if (o && (ALLOWED_ORIGINS.includes(o) || /^https?:\/\/localhost(:\d+)?$/.test(o))) {
     res.set('Access-Control-Allow-Origin', o);
@@ -68,6 +68,21 @@ app.post('/v1/installs', rateLimit, async (req, res) => {
   }
 });
 
+// Download button clicks. The page sends these with sendBeacon (plain text), so accept text too.
+const SOURCES = new Set(['hero', 'footer', 'nav', 'readme', 'other']);
+app.get('/v1/downloads', async (req, res) => {
+  try { res.json({ downloads: await downloads.countDocuments() }); }
+  catch (e) { console.error(e); res.status(500).json({ error: 'Could not load downloads' }); }
+});
+app.post('/v1/downloads', rateLimit, express.text({ type: ['text/plain', 'application/json'], limit: '1kb' }), async (req, res) => {
+  try {
+    let source = 'other';
+    try { const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); if (SOURCES.has(b.source)) source = b.source; } catch {}
+    await downloads.insertOne({ at: new Date(), source });
+    res.status(201).json({ ok: true, downloads: await downloads.countDocuments() });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Could not record download' }); }
+});
+
 // Windows waitlist: each browser makes a random ID so the same person isn't counted twice.
 app.get('/v1/windows', async (req, res) => {
   try { res.json({ waiting: await waitlist.countDocuments() }); }
@@ -89,7 +104,7 @@ app.post('/v1/windows', rateLimit, async (req, res) => {
 async function stats() {
   const now = Date.now();
   const since = (days) => new Date(now - days * 86_400_000);
-  const [total, d1, d7, d30, byVersion, byArch, byDay, windowsWaiting] = await Promise.all([
+  const [total, d1, d7, d30, byVersion, byArch, byDay, windowsWaiting, downloadClicks, downloads7d] = await Promise.all([
     installs.countDocuments(),
     installs.countDocuments({ firstSeen: { $gte: since(1) } }),
     installs.countDocuments({ firstSeen: { $gte: since(7) } }),
@@ -102,9 +117,11 @@ async function stats() {
       { $sort: { _id: 1 } },
     ]).toArray(),
     waitlist.countDocuments(),
+    downloads.countDocuments(),
+    downloads.countDocuments({ at: { $gte: since(7) } }),
   ]);
   const map = (a) => a.map((x) => ({ [x._id || 'unknown']: x.count })).reduce((o, x) => Object.assign(o, x), {});
-  return { totalInstalls: total, last24h: d1, last7d: d7, last30d: d30, byVersion: map(byVersion), byChip: map(byArch), byDay: map(byDay), windowsWaiting, updatedAt: new Date().toISOString() };
+  return { totalInstalls: total, last24h: d1, last7d: d7, last30d: d30, byVersion: map(byVersion), byChip: map(byArch), byDay: map(byDay), windowsWaiting, downloadClicks, downloads7d, updatedAt: new Date().toISOString() };
 }
 
 app.get('/v1/stats', async (req, res) => {
@@ -121,13 +138,14 @@ app.get('/', async (req, res) => {
 body{font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:32px 16px;background:#F5F9FD;color:#13202F}
 main{max-width:560px;margin:0 auto}h1{font-size:20px;margin:0 0 4px}p{margin:0;color:#4A5B6E}
 .big{font-size:64px;font-weight:800;margin:16px 0 4px;font-variant-numeric:tabular-nums}
-.row{display:flex;gap:24px;margin:16px 0 28px}.row div b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
+.row{display:flex;flex-wrap:wrap;gap:16px 24px;margin:16px 0 28px}.row div b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:6px 0;border-bottom:1px solid #dde7f0}td:last-child{text-align:right}
 @media (prefers-color-scheme:dark){body{background:#0D1622;color:#E9F1FA}p{color:#9DB0C4}td{border-color:#223247}}
 </style></head><body><main>
 <h1>Mimo installs</h1><p>Updated ${new Date(s.updatedAt).toUTCString()}</p>
 <div class="big">${s.totalInstalls.toLocaleString()}</div><p>Macs that have installed Mimo</p>
 <div class="row"><div><b>${s.last24h}</b>last 24 hours</div><div><b>${s.last7d}</b>last 7 days</div><div><b>${s.last30d}</b>last 30 days</div><div><b>${s.windowsWaiting}</b>waiting for Windows</div></div>
+<div class="row"><div><b>${s.downloadClicks.toLocaleString()}</b>download clicks</div><div><b>${s.downloads7d}</b>clicks in the last 7 days</div></div>
 <table><tr><td><b>Day</b></td><td><b>New installs</b></td></tr>${rows}</table>
 </main></body></html>`);
 });
@@ -141,6 +159,8 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
   await installs.createIndex({ installId: 1 }, { unique: true });
   await installs.createIndex({ firstSeen: -1 });
   waitlist = client.db(DB_NAME).collection('windows_waitlist');
+  downloads = client.db(DB_NAME).collection('download_clicks');
+  await downloads.createIndex({ at: -1 });
   await waitlist.createIndex({ voterId: 1 }, { unique: true });
   app.listen(PORT, '127.0.0.1', () => console.log(`Mimo backend listening on ${PORT}`));
 })().catch((e) => { console.error(e); process.exit(1); });
