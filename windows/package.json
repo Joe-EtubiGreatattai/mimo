@@ -24,6 +24,10 @@
     "appId": "com.great.mimo",
     "productName": "Mimo",
     "copyright": "Great Attai",
+    "compression": "maximum",
+    "electronLanguages": [
+      "en-US"
+    ],
     "directories": {
       "output": "dist",
       "buildResources": "build"
