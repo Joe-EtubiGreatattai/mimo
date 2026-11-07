@@ -7,7 +7,8 @@
 <meta name="description" content="See your Mac's free space and tell Mimo what to clean, from your phone.">
 <meta name="theme-color" content="#2F83DE">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Mimo">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icon-192.png">
@@ -16,217 +17,418 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Figtree:wght@400;500;600;700;800&display=swap">
 <style>
-/* Layout: one column phone app. A sky-blue status header with the storage ring, then cards for review, actions, settings and activity. */
+/* Layout: one column phone app. Blue status header with the storage ring, then stacked cards. Sheets slide up from the bottom; notices drop in from the top. */
 :root{
-  --paper:#F2F7FC; --card:#FFFFFF; --ink:#13202F; --ink-2:#55667A; --line:rgba(19,32,47,.10);
-  --sky:#2F83DE; --sky-deep:#1B5FAE; --sky-soft:#DCEEFC;
-  --good:#1F9D5B; --warn:#E08A12; --bad:#E2334C; --purple:#7A4FD6;
+  --paper:#EEF4FB; --card:#FFFFFF; --ink:#13202F; --ink-2:#5A6B7F; --line:rgba(19,32,47,.09);
+  --sky:#2F83DE; --sky-deep:#1B5FAE; --sky-soft:#DDEEFC;
+  --good:#1F9D5B; --good-soft:#DDF4E7; --warn:#D9820B; --bad:#E2334C; --bad-soft:#FDE4E8; --purple:#7A4FD6; --purple-soft:#EEE7FC;
+  --shadow:0 10px 28px -20px rgba(10,30,60,.45);
   --display:"Bagel Fat One","Arial Rounded MT Bold",system-ui,sans-serif;
-  --body:"Figtree",-apple-system,system-ui,sans-serif;
+  --body:"Figtree",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --spring:cubic-bezier(.34,1.4,.64,1);
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{--paper:#0B131E;--card:#131F2E;--ink:#E9F1FA;--ink-2:#9DB0C4;--line:rgba(233,241,250,.10);--sky:#5AA6F0;--sky-deep:#8CC3F7;--sky-soft:#17304A;color-scheme:dark}}
-*{box-sizing:border-box}
+@media (prefers-color-scheme:dark){:root{
+  --paper:#0A121C;--card:#121D2B;--ink:#E9F1FA;--ink-2:#93A6BB;--line:rgba(233,241,250,.09);
+  --sky:#4F9DEB;--sky-deep:#8CC3F7;--sky-soft:#16304A;--good:#35B979;--good-soft:#13362A;--bad-soft:#3A1720;--purple:#A585F0;--purple-soft:#2A2045;
+  --shadow:0 10px 28px -18px rgba(0,0,0,.8);color-scheme:dark}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
-html,body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 var(--body);-webkit-font-smoothing:antialiased}
-body{padding-bottom:max(24px,env(safe-area-inset-bottom))}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 var(--body);-webkit-font-smoothing:antialiased;overscroll-behavior-y:none}
+body{min-height:100vh;padding-bottom:max(28px,env(safe-area-inset-bottom))}
 button,input{font:inherit;color:inherit}
-button{cursor:pointer}
-:focus-visible{outline:3px solid #FFD23F;outline-offset:2px;border-radius:10px}
-.wrap{max-width:520px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+button{cursor:pointer;-webkit-user-select:none;user-select:none}
+:focus-visible{outline:3px solid #FFD23F;outline-offset:2px}
+svg.i{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.wrap{max-width:540px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
 
-/* header */
-.top{background:radial-gradient(120% 120% at 10% 0%,#9FDCFA 0%,#4E9EEA 50%,#2B6FC9 100%);color:#fff;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:28px;border-radius:0 0 28px 28px}
+/* ---------- buttons ---------- */
+.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 16px;border-radius:14px;border:0;
+  font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+  background:var(--sky-soft);color:var(--sky-deep);transition:transform .15s var(--ease),background .2s,opacity .2s,box-shadow .2s}
+.btn:active:not(:disabled){transform:scale(.96)}
+.btn.primary{background:var(--sky);color:#fff;box-shadow:0 8px 18px -10px color-mix(in srgb,var(--sky) 80%,transparent)}
+.btn.ghost{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line);color:var(--ink)}
+.btn.danger{background:var(--bad);color:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+.btn .lbl{overflow:hidden;text-overflow:ellipsis}
+.btn.loading{pointer-events:none}
+.btn.loading .i,.btn.loading .lbl{opacity:0}
+.btn.loading::after{content:"";position:absolute;width:20px;height:20px;border-radius:50%;border:2.5px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite}
+.btn.ok{animation:pop .45s var(--spring)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pop{0%{transform:scale(.94)}60%{transform:scale(1.04)}100%{transform:scale(1)}}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.tile{flex-direction:column;height:auto;padding:14px 6px 12px;gap:6px;font-size:13.5px;border-radius:16px}
+.tile .i{width:24px;height:24px}
+
+/* ---------- header ---------- */
+.top{position:relative;overflow:hidden;color:#fff;padding-top:max(14px,env(safe-area-inset-top));padding-bottom:30px;border-radius:0 0 30px 30px;
+  background:radial-gradient(130% 120% at 10% 0%,#9FDCFA 0%,#4E9EEA 48%,#2A6CC6 100%)}
+.top::after{content:"";position:absolute;inset:auto -30% -60% -30%;height:90%;background:radial-gradient(closest-side,rgba(255,255,255,.22),transparent);pointer-events:none}
 .bar{display:flex;align-items:center;gap:12px;padding-block:6px 18px}
-.bar img{width:40px;height:40px;border-radius:10px;box-shadow:0 6px 14px -6px rgba(0,20,60,.5)}
+.bar img{width:40px;height:40px;border-radius:11px;box-shadow:0 6px 14px -6px rgba(0,20,60,.5)}
 .bar .t{flex:1;min-width:0}
-.bar b{display:block;font-family:var(--display);font-weight:400;font-size:22px;line-height:1.1}
-.bar small{display:flex;align-items:center;gap:6px;font-size:13px;opacity:.92}
-.dot{width:8px;height:8px;border-radius:50%;background:#7CF0B0;box-shadow:0 0 0 3px rgba(124,240,176,.25)}
-.dot.off{background:#FFB4BF;box-shadow:0 0 0 3px rgba(255,180,191,.25)}
-.hero{display:flex;align-items:center;gap:20px}
-.ring{position:relative;width:132px;height:132px;flex:none}
+.bar b{display:block;font-family:var(--display);font-weight:400;font-size:21px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar small{display:flex;align-items:center;gap:6px;font-size:13px;opacity:.95;white-space:nowrap;overflow:hidden}
+.iconbtn{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;border:0;background:rgba(255,255,255,.2);color:#fff;flex:none;transition:transform .15s var(--ease),background .2s}
+.iconbtn:active{transform:scale(.92)}
+.iconbtn.spinning .i{animation:spin .8s linear infinite}
+.dot{width:8px;height:8px;border-radius:50%;background:#7CF0B0;flex:none;box-shadow:0 0 0 0 rgba(124,240,176,.6);animation:ping 2s infinite}
+.dot.off{background:#FFB4BF;animation:none}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(124,240,176,.55)}70%{box-shadow:0 0 0 8px rgba(124,240,176,0)}100%{box-shadow:0 0 0 0 rgba(124,240,176,0)}}
+.hero{position:relative;z-index:1;display:flex;align-items:center;gap:clamp(14px,5vw,22px)}
+.ring{position:relative;width:clamp(112px,34vw,138px);aspect-ratio:1;flex:none}
 .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring #arc{transition:stroke-dashoffset 1s var(--ease)}
 .ring .num{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
-.ring .num strong{font-size:40px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
-.ring .num span{font-size:13px;opacity:.85;margin-top:4px}
-.facts{display:grid;gap:6px;font-size:14px;min-width:0}
-.mood{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:16px;line-height:1.25;background:rgba(255,255,255,.2);padding:6px 12px;border-radius:999px;justify-self:start}
+.ring .num strong{font-size:clamp(32px,10vw,42px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-1px}
+.ring .num span{font-size:12.5px;opacity:.9;margin-top:4px}
+.facts{display:grid;gap:8px;min-width:0}
+.mood{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:15px;line-height:1.2;background:rgba(255,255,255,.2);padding:7px 12px;border-radius:999px;justify-self:start;max-width:100%}
+.mood span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fact{display:flex;align-items:center;gap:7px;font-size:14px;opacity:.95;min-width:0}
+.fact .i{width:16px;height:16px;opacity:.85}
+.fact span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:350px){.hero{flex-direction:column;align-items:flex-start}.ring{width:120px}}
 
-/* cards */
-main{display:grid;gap:14px;margin-top:-14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:16px;box-shadow:0 10px 30px -22px rgba(10,30,60,.35)}
-.card h2{margin:0 0 10px;font-size:15px;font-weight:700;color:var(--ink-2)}
-.row{display:flex;align-items:center;gap:12px;min-height:44px}
+/* ---------- cards ---------- */
+main{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin-top:-16px;position:relative;z-index:2}
+main > *{min-width:0}
+.pick{position:relative}
+.card{background:var(--card);border-radius:22px;padding:16px;box-shadow:var(--shadow);border:1px solid var(--line)}
+.card h2{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:14px;font-weight:700;color:var(--ink-2);letter-spacing:.01em}
+.card h2 .i{width:17px;height:17px}
+.enter{animation:rise .5s var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}}
+.row{display:flex;align-items:center;gap:12px;min-height:52px;padding-block:6px}
 .row + .row{border-top:1px solid var(--line)}
 .row .grow{flex:1;min-width:0}
-.row .sub{font-size:13px;color:var(--ink-2)}
-.size{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.row .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .sub{font-size:13px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:var(--sky-soft);color:var(--sky-deep);flex:none}
+.badge .i{width:19px;height:19px}
+.size{font-variant-numeric:tabular-nums;font-weight:800;white-space:nowrap}
 .perm{color:var(--warn)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 18px;border-radius:14px;border:0;font-weight:700;background:var(--sky-soft);color:var(--sky-deep)}
-.btn.primary{background:var(--sky);color:#fff}
-.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
-.btn:disabled{opacity:.5;cursor:default}
-.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
-.btns.one{grid-template-columns:1fr}
-.review{border-color:color-mix(in srgb,var(--purple) 40%,transparent)}
-.review h2{color:var(--purple)}
-.check{width:24px;height:24px;flex:none;accent-color:var(--sky)}
-.total{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-weight:700}
-.busy{display:flex;align-items:center;gap:10px;font-weight:600}
-.spin{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--sky-soft);border-top-color:var(--sky);animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.stepper{display:flex;align-items:center;gap:8px}
-.stepper button{width:40px;height:40px;border-radius:12px;border:1px solid var(--line);background:transparent;font-size:20px;font-weight:700}
-.stepper output{min-width:64px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
-.switch{position:relative;width:52px;height:32px;flex:none}
-.switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
-.switch span{position:absolute;inset:0;border-radius:999px;background:color-mix(in srgb,var(--ink-2) 35%,transparent);transition:background .2s}
-.switch span::after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
-.switch input:checked + span{background:var(--good)}
-.switch input:checked + span::after{transform:translateX(20px)}
-.switch input:focus-visible + span{outline:3px solid #FFD23F;outline-offset:2px}
-.feed{display:grid;gap:10px;font-size:14px}
-.feed div{display:flex;gap:10px}
-.feed time{color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:64px}
-.muted{color:var(--ink-2);font-size:14px}
-.empty{color:var(--ink-2);font-size:15px;margin:0}
 
-/* pair screen */
-.pair{min-height:100vh;display:grid;align-content:center;gap:18px;padding-block:max(32px,env(safe-area-inset-top)) 32px;text-align:center}
-.pair img{width:96px;height:96px;margin:0 auto;border-radius:24px;box-shadow:0 14px 30px -14px rgba(10,40,90,.5)}
-.pair h1{font-family:var(--display);font-weight:400;font-size:34px;margin:0;line-height:1.1}
-.pair p{margin:0;color:var(--ink-2)}
-.pair ol{text-align:left;margin:0 auto;padding-left:20px;color:var(--ink-2);max-width:340px;display:grid;gap:6px}
-.code{width:100%;max-width:320px;margin:0 auto;text-align:center;font:800 32px/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.35em;text-transform:uppercase;padding:16px 8px 16px 18px;border-radius:16px;border:2px solid var(--line);background:var(--card)}
-.code:focus{border-color:var(--sky);outline:none}
-.err{color:var(--bad);font-weight:600;min-height:1.4em}
-.toast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%) translateY(140%);background:var(--ink);color:var(--paper);padding:12px 18px;border-radius:14px;font-weight:600;transition:transform .3s;max-width:calc(100% - 32px);text-align:center;z-index:5}
-.toast:not(.on){visibility:hidden;transition:transform .3s,visibility 0s .3s}
-.toast.on{transform:translateX(-50%) translateY(0)}
-footer{margin-top:18px;text-align:center}
-.linkbtn{background:none;border:0;color:var(--ink-2);text-decoration:underline;padding:10px}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* banner (offline / working) */
+.notice{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:18px;font-weight:600;font-size:14.5px}
+.notice.work{background:var(--card);box-shadow:var(--shadow);border:1px solid var(--line)}
+.notice.off{background:var(--bad-soft);color:var(--bad)}
+.notice .grow{flex:1;min-width:0}
+.progress{height:6px;border-radius:6px;background:var(--sky-soft);overflow:hidden;margin-top:8px}
+.progress i{display:block;height:100%;width:40%;border-radius:6px;background:var(--sky);animation:slide 1.2s var(--ease) infinite}
+@keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(260%)}}
+.spin{width:20px;height:20px;border-radius:50%;border:2.5px solid var(--sky-soft);border-top-color:var(--sky);animation:spin .8s linear infinite;flex:none}
+
+/* review */
+.review{border-color:color-mix(in srgb,var(--purple) 35%,transparent)}
+.review h2{color:var(--purple)}
+.pick{cursor:pointer}
+.box{width:26px;height:26px;border-radius:8px;flex:none;display:grid;place-items:center;box-shadow:inset 0 0 0 2px var(--line);transition:background .2s,box-shadow .2s,transform .2s var(--spring)}
+.box .i{width:16px;height:16px;stroke-width:3;color:#fff;opacity:0;transform:scale(.5);transition:opacity .15s,transform .25s var(--spring)}
+.pick input{position:absolute;opacity:0;pointer-events:none}
+.pick input:checked + .box{background:var(--sky);box-shadow:none}
+.pick input:checked + .box .i{opacity:1;transform:scale(1)}
+.pick input:focus-visible + .box{outline:3px solid #FFD23F;outline-offset:2px}
+.pick:active .box{transform:scale(.9)}
+.total{display:flex;justify-content:space-between;align-items:baseline;margin:12px 0 4px;font-weight:700}
+.total .size{font-size:20px}
+
+/* stepper + switch */
+.stepper{display:flex;align-items:center;gap:6px;flex:none}
+.stepper button{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;border:0;background:var(--sky-soft);color:var(--sky-deep);transition:transform .15s var(--ease)}
+.stepper button:active{transform:scale(.9)}
+.stepper button:disabled{opacity:.4}
+.stepper output{min-width:62px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums;transition:opacity .2s}
+.pending{animation:breathe 1s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.35}}
+.switch{position:relative;width:52px;height:32px;flex:none}
+.switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
+.switch .track{position:absolute;inset:0;border-radius:999px;background:color-mix(in srgb,var(--ink-2) 32%,transparent);transition:background .25s}
+.switch .knob{position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.25);transition:transform .3s var(--spring);display:grid;place-items:center}
+.switch input:checked ~ .track{background:var(--good)}
+.switch input:checked ~ .knob{transform:translateX(20px)}
+.switch input:focus-visible ~ .track{outline:3px solid #FFD23F;outline-offset:2px}
+.switch.busy input{pointer-events:none}
+.switch.busy .knob::after{content:"";width:14px;height:14px;border-radius:50%;border:2px solid var(--sky);border-right-color:transparent;animation:spin .7s linear infinite}
+
+/* activity */
+.feed{display:grid;gap:2px}
+.feed .it{display:flex;gap:12px;padding:8px 0;font-size:14px;align-items:flex-start}
+.feed .it .badge{width:30px;height:30px;border-radius:10px}
+.feed .it .badge .i{width:15px;height:15px}
+.feed .it .txt{flex:1;min-width:0}
+.feed .it time{display:block;color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums}
+.empty{color:var(--ink-2);font-size:14.5px;margin:4px 0}
+
+/* skeleton */
+.sk{background:linear-gradient(90deg,var(--line) 0%,color-mix(in srgb,var(--line) 40%,transparent) 50%,var(--line) 100%);background-size:200% 100%;animation:shimmer 1.2s linear infinite;border-radius:12px}
+@keyframes shimmer{to{background-position:-200% 0}}
+.skrow{height:52px;margin-bottom:8px}
+
+/* ---------- pair screen ---------- */
+.pair{min-height:100vh;display:grid;align-content:center;gap:20px;padding-block:max(36px,env(safe-area-inset-top)) 36px;text-align:center}
+.pair .logo{width:clamp(84px,26vw,104px);aspect-ratio:1;margin:0 auto;border-radius:26px;box-shadow:0 18px 34px -16px rgba(10,40,90,.55);animation:float 4s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-6px) rotate(-2deg)}}
+.pair h1{font-family:var(--display);font-weight:400;font-size:clamp(28px,8vw,36px);margin:0;line-height:1.1}
+.steps{display:grid;gap:10px;text-align:left;max-width:360px;margin:0 auto;width:100%}
+.steps div{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;font-size:14.5px}
+.steps b{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:var(--sky-soft);color:var(--sky-deep);font-size:14px;flex:none}
+.codebox{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;max-width:360px;margin:0 auto;width:100%;position:relative}
+.codebox input{position:absolute;inset:0;opacity:0;font-size:16px}
+.cell{height:clamp(50px,15vw,60px);border-radius:14px;background:var(--card);border:2px solid var(--line);display:grid;place-items:center;font:800 clamp(22px,7vw,28px)/1 ui-monospace,"SF Mono",Menlo,monospace;transition:border-color .2s,transform .2s var(--spring)}
+.cell.on{border-color:var(--sky)}
+.cell.filled{transform:scale(1.04)}
+.codebox.shake{animation:shake .4s}
+@keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+.pairform{display:grid;gap:14px;max-width:360px;margin:0 auto;width:100%}
+.err{color:var(--bad);font-weight:600;font-size:14px;min-height:1.4em}
+.muted{color:var(--ink-2);font-size:14px;margin:0}
+
+/* ---------- popups ---------- */
+.notes{position:fixed;left:0;right:0;top:0;z-index:30;display:grid;gap:8px;padding:max(10px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 0 max(12px,env(safe-area-inset-left));pointer-events:none;justify-items:center}
+.note{pointer-events:auto;width:100%;max-width:440px;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:color-mix(in srgb,var(--card) 92%,transparent);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 14px 34px -12px rgba(0,0,0,.35);border:1px solid var(--line);animation:drop .45s var(--spring) both}
+.note.out{animation:lift .3s var(--ease) forwards}
+.note .badge{width:36px;height:36px}
+.note.good .badge{background:var(--good-soft);color:var(--good)}
+.note.bad .badge{background:var(--bad-soft);color:var(--bad)}
+.note .txt{flex:1;min-width:0}
+.note b{display:block;font-size:14.5px}
+.note span{display:block;font-size:13.5px;color:var(--ink-2)}
+@keyframes drop{from{opacity:0;transform:translateY(-24px) scale(.96)}}
+@keyframes lift{to{opacity:0;transform:translateY(-20px) scale(.96)}}
+
+.scrim{position:fixed;inset:0;z-index:40;background:rgba(5,12,22,.45);opacity:0;transition:opacity .3s var(--ease);backdrop-filter:blur(2px)}
+.scrim.on{opacity:1}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;max-width:540px;margin:0 auto;background:var(--card);border-radius:26px 26px 0 0;
+  padding:10px max(18px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));
+  transform:translateY(105%);transition:transform .38s var(--ease);box-shadow:0 -10px 40px -10px rgba(0,0,0,.35);max-height:85vh;overflow:auto}
+.sheet.on{transform:translateY(0)}
+.grab{width:40px;height:5px;border-radius:5px;background:var(--line);margin:0 auto 14px}
+.sheet h3{margin:0 0 6px;font-size:20px}
+.sheet p{margin:0 0 14px;color:var(--ink-2);font-size:14.5px}
+.sheet .list{margin:0 0 16px;display:grid;gap:2px}
+.sheet .btns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:10px}
+
+footer{display:flex;justify-content:center;margin-top:6px}
+.linkbtn{display:inline-flex;align-items:center;gap:8px;background:none;border:0;color:var(--ink-2);padding:12px;font-weight:600;font-size:14px;border-radius:12px}
+.linkbtn:active{background:var(--line)}
+
+.reviewbtns{grid-template-columns:auto minmax(0,1fr)}
+.reviewbtns #skipBtn{padding:0 18px}
+.setrow .name{white-space:normal;line-height:1.25}
+.setrow .sub{white-space:normal}
+.note .badge .i{width:20px;height:20px}
+@media (max-width:380px){
+  .setrow .badge{display:none}
+  .stepper{gap:4px}.stepper button{width:36px;height:36px}.stepper output{min-width:54px}
+  .reviewbtns #skipBtn .i{display:none}
+  .card{padding:14px}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 </style>
 </head>
 <body>
 
-<section id="pairView" class="wrap pair" hidden>
-  <img src="icon-192.png" alt="">
-  <h1>Pair with your Mac</h1>
-  <ol>
-    <li>On your Mac, open Mimo and go to <b>Settings</b>.</li>
-    <li>Under <b>Phone</b>, click <b>Pair a phone</b>.</li>
-    <li>Scan the QR code, or type the 6-character code here.</li>
-  </ol>
-  <form id="pairForm" style="display:grid;gap:12px">
-    <label for="code" class="muted">Pairing code</label>
-    <input id="code" class="code" maxlength="6" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="ABC123" required>
-    <button class="btn primary" id="pairBtn" type="submit">Pair</button>
-    <div class="err" id="pairErr" role="alert"></div>
-  </form>
-  <p class="muted">Tip: add this page to your Home Screen to use Mimo like an app.</p>
+<!-- icons -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12"/><path d="M11 11.5V4a1.5 1.5 0 0 1 3 0v8"/><path d="M14 11.5V6a1.5 1.5 0 0 1 3 0v8.5"/><path d="M8 13l-1.6-1.8a1.6 1.6 0 0 0-2.4 2.1L7.5 18A6 6 0 0 0 12 20h1a5 5 0 0 0 5-5v-1"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 14h18"/><circle cx="17" cy="17" r=".8" fill="currentColor"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.3 17A9 9 0 1 1 20.7 17"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-wifioff" viewBox="0 0 24 24"><path d="M2 2l20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 5.2-2.8M19 13a10 10 0 0 0-2-1.5M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8A15 15 0 0 0 11 5"/><circle cx="12" cy="20" r=".8" fill="currentColor"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5v.01"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></symbol>
+  <symbol id="i-paw" viewBox="0 0 24 24"><circle cx="7" cy="9" r="1.8"/><circle cx="12" cy="6.5" r="1.8"/><circle cx="17" cy="9" r="1.8"/><path d="M12 12c-3 0-5.5 3-5.5 5.3 0 1.8 1.5 2.7 3 2.2l2.5-.8 2.5.8c1.5.5 3-.4 3-2.2C17.5 15 15 12 12 12z"/></symbol>
+</svg>
+
+<div class="notes" id="notes" aria-live="polite"></div>
+<div class="scrim" id="scrim" hidden></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+  <div class="grab"></div>
+  <h3 id="sheetTitle"></h3>
+  <p id="sheetText"></p>
+  <div class="list" id="sheetList"></div>
+  <div class="btns">
+    <button class="btn ghost" id="sheetCancel" type="button"><span class="lbl">Cancel</span></button>
+    <button class="btn primary" id="sheetOk" type="button"><span class="lbl">OK</span></button>
+  </div>
 </section>
 
+<!-- pair -->
+<section id="pairView" class="wrap pair" hidden>
+  <img class="logo" src="icon-192.png" alt="">
+  <div><h1>Pair with your Mac</h1><p class="muted" style="margin-top:8px">Control Mimo from anywhere.</p></div>
+  <div class="steps">
+    <div><b>1</b><span>Open Mimo on your Mac and go to <strong>Settings</strong></span></div>
+    <div><b>2</b><span>Under <strong>Phone</strong>, click <strong>Pair a phone</strong></span></div>
+    <div><b>3</b><span>Scan the QR code or type the code below</span></div>
+  </div>
+  <form class="pairform" id="pairForm" novalidate>
+    <label class="codebox" id="codebox" for="code">
+      <input id="code" maxlength="6" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" inputmode="text" aria-label="6-character pairing code">
+      <span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span>
+    </label>
+    <button class="btn primary" id="pairBtn" type="submit"><svg class="i"><use href="#i-phone"/></svg><span class="lbl">Pair phone</span></button>
+    <div class="err" id="pairErr" role="alert"></div>
+  </form>
+  <p class="muted">Tip: add Mimo to your Home Screen to open it like an app.</p>
+</section>
+
+<!-- app -->
 <div id="appView" hidden>
   <header class="top">
     <div class="wrap">
       <div class="bar">
         <img src="icon-192.png" alt="">
-        <div class="t"><b id="macName">Your Mac</b><small><span class="dot" id="dot"></span><span id="seen">Connecting…</span></small></div>
+        <div class="t"><b id="macName">Your Mac</b><small><span class="dot off" id="dot"></span><span id="seen">Connecting…</span></small></div>
+        <button class="iconbtn" id="refreshBtn" type="button" aria-label="Refresh"><svg class="i"><use href="#i-refresh"/></svg></button>
       </div>
       <div class="hero">
         <div class="ring" aria-hidden="true">
-          <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="10"/><circle id="bar" cx="50" cy="50" r="42" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="263.9" style="transition:stroke-dashoffset .6s"/></svg>
+          <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="10"/><circle id="arc" cx="50" cy="50" r="42" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="263.9"/></svg>
           <div class="num"><strong id="free">–</strong><span>GB free</span></div>
         </div>
         <div class="facts">
-          <span class="mood" id="mood">…</span>
-          <span id="used"></span>
-          <span id="rule"></span>
+          <span class="mood"><svg class="i" style="width:16px;height:16px"><use href="#i-paw"/></svg><span id="mood">Loading…</span></span>
+          <span class="fact"><svg class="i"><use href="#i-disk"/></svg><span id="used">–</span></span>
+          <span class="fact"><svg class="i"><use href="#i-gauge"/></svg><span id="rule">–</span></span>
         </div>
       </div>
     </div>
   </header>
 
   <main class="wrap">
-    <section class="card" id="busyCard" hidden><div class="busy"><span class="spin"></span><span id="busyText">Working…</span></div></section>
+    <div class="notice off" id="offCard" hidden><svg class="i"><use href="#i-wifioff"/></svg><div class="grow">Your Mac is offline. Anything you send will run when it wakes up.</div></div>
 
-    <section class="card review" id="reviewCard" hidden>
-      <h2 id="reviewTitle">Waiting for your OK</h2>
+    <div class="notice work enter" id="busyCard" hidden>
+      <span class="spin"></span>
+      <div class="grow"><div id="busyText">Working…</div><div class="progress"><i></i></div></div>
+    </div>
+
+    <section class="card review enter" id="reviewCard" hidden>
+      <h2><svg class="i"><use href="#i-hand"/></svg><span id="reviewTitle">Waiting for your OK</span></h2>
       <div id="findings"></div>
       <div class="total"><span>Selected</span><span id="selTotal" class="size">0 KB</span></div>
-      <div class="btns">
-        <button class="btn ghost" id="notNow" type="button">Not now</button>
-        <button class="btn primary" id="cleanSel" type="button">Clean selected</button>
+      <div class="grid2 reviewbtns">
+        <button class="btn ghost" id="skipBtn" type="button"><svg class="i"><use href="#i-x"/></svg><span class="lbl">Skip</span></button>
+        <button class="btn primary" id="cleanBtn" type="button"><svg class="i"><use href="#i-sparkles"/></svg><span class="lbl">Clean</span></button>
       </div>
     </section>
 
-    <section class="card">
-      <h2>Quick actions</h2>
-      <div class="btns">
-        <button class="btn primary" id="findBtn" type="button">Find things to clean</button>
-        <button class="btn" id="checkBtn" type="button">Check now</button>
-      </div>
-      <div class="btns one"><button class="btn ghost" id="pingBtn" type="button">Send a notification to my Mac</button></div>
-    </section>
-
-    <section class="card">
-      <h2>Settings</h2>
-      <div class="row">
-        <div class="grow">Clean below<div class="sub" id="warnAt"></div></div>
-        <div class="stepper"><button type="button" id="minus" aria-label="Lower by 5 GB">−</button><output id="limit">–</output><button type="button" id="plus" aria-label="Raise by 5 GB">+</button></div>
-      </div>
-      <div class="row">
-        <label class="grow" for="askFirst">Ask before deleting<div class="sub">Off means Mimo cleans on his own.</div></label>
-        <span class="switch"><input type="checkbox" id="askFirst"><span></span></span>
+    <section class="card enter" style="animation-delay:.05s">
+      <h2><svg class="i"><use href="#i-sparkles"/></svg>Actions</h2>
+      <div class="grid3">
+        <button class="btn primary tile" id="scanBtn" type="button"><svg class="i"><use href="#i-search"/></svg><span class="lbl">Scan</span></button>
+        <button class="btn tile" id="checkBtn" type="button"><svg class="i"><use href="#i-refresh"/></svg><span class="lbl">Check</span></button>
+        <button class="btn tile" id="pingBtn" type="button"><svg class="i"><use href="#i-bell"/></svg><span class="lbl">Ping Mac</span></button>
       </div>
     </section>
 
-    <section class="card">
-      <h2>Places Mimo looks after</h2>
-      <div id="places"><p class="empty">Waiting for your Mac…</p></div>
+    <section class="card enter" style="animation-delay:.1s">
+      <h2><svg class="i"><use href="#i-sliders"/></svg>Settings</h2>
+      <div class="row setrow">
+        <span class="badge"><svg class="i"><use href="#i-gauge"/></svg></span>
+        <div class="grow"><div class="name">Clean below</div><div class="sub" id="warnAt">–</div></div>
+        <div class="stepper">
+          <button type="button" id="minus" aria-label="Lower by 5 GB"><svg class="i"><use href="#i-minus"/></svg></button>
+          <output id="limit">–</output>
+          <button type="button" id="plus" aria-label="Raise by 5 GB"><svg class="i"><use href="#i-plus"/></svg></button>
+        </div>
+      </div>
+      <div class="row setrow">
+        <span class="badge"><svg class="i"><use href="#i-hand"/></svg></span>
+        <label class="grow" for="askFirst"><div class="name">Ask before deleting</div><div class="sub">Off: Mimo cleans on his own</div></label>
+        <span class="switch" id="askSwitch"><input type="checkbox" id="askFirst"><span class="track"></span><span class="knob"></span></span>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>What Mimo has been doing</h2>
-      <div class="feed" id="feed"><p class="empty">Nothing yet.</p></div>
+    <section class="card enter" style="animation-delay:.15s">
+      <h2><svg class="i"><use href="#i-folder"/></svg>Places</h2>
+      <div id="places"><div class="sk skrow"></div><div class="sk skrow"></div><div class="sk skrow"></div></div>
     </section>
 
-    <footer><button class="linkbtn" id="unpair" type="button">Unpair this phone</button></footer>
+    <section class="card enter" style="animation-delay:.2s">
+      <h2><svg class="i"><use href="#i-clock"/></svg>Activity</h2>
+      <div class="feed" id="feed"><div class="sk skrow"></div><div class="sk skrow"></div></div>
+    </section>
+
+    <footer><button class="linkbtn" id="unpairBtn" type="button"><svg class="i"><use href="#i-logout"/></svg>Unpair this phone</button></footer>
   </main>
 </div>
-
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 (() => {
   const API = '/v1';
   const $ = (id) => document.getElementById(id);
-  let tokenStore = null;
-  try { tokenStore = localStorage.getItem('mimoToken'); } catch (e) {}
-  let state = null, selected = new Set(), selectionTouched = false, pollTimer = null, confirmUnpair = false;
-  const pendingCmds = new Map();
+  const icon = (n, cls = 'i') => `<svg class="${cls}"><use href="#i-${n}"/></svg>`;
+  let token = null;
+  try { token = localStorage.getItem('mimoToken'); } catch (e) {}
+  let state = null, selected = new Set(), touched = false, pollTimer = null, lastFreedSeen = null, wasOnline = null;
+  const pending = new Map(); // command id -> { done(ok, msg) }
+  const busyPlaces = new Set();
+  let busyAsk = false, busyLimit = false;
 
-  const fmt = (b) => {
-    if (!b) return 'Zero KB';
-    const u = ['bytes','KB','MB','GB','TB']; let i = 0, n = b;
-    while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
-    return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + ' ' + u[i];
-  };
-  const ago = (d) => {
-    const s = Math.max(0, Math.round((Date.now() - new Date(d)) / 1000));
-    if (s < 10) return 'just now';
-    if (s < 60) return s + ' sec ago';
-    if (s < 3600) return Math.round(s / 60) + ' min ago';
-    if (s < 86400) return Math.round(s / 3600) + ' h ago';
-    return Math.round(s / 86400) + ' days ago';
-  };
+  // ---------- helpers ----------
+  const fmt = (b) => { if (!b) return 'Zero KB'; const u = ['bytes','KB','MB','GB','TB']; let i = 0, n = b; while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; } return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + ' ' + u[i]; };
+  const ago = (d) => { const s = Math.max(0, Math.round((Date.now() - new Date(d)) / 1000)); if (s < 10) return 'just now'; if (s < 60) return s + 's ago'; if (s < 3600) return Math.round(s / 60) + ' min ago'; if (s < 86400) return Math.round(s / 3600) + ' h ago'; return Math.round(s / 86400) + ' days ago'; };
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-  function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2600); }
+  const vibrate = (ms = 10) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+  function setLoading(btn, on) { if (!btn) return; btn.classList.toggle('loading', on); btn.setAttribute('aria-busy', on ? 'true' : 'false'); if (!on) { btn.classList.remove('ok'); void btn.offsetWidth; btn.classList.add('ok'); } }
+
+  // in-app notifications
+  function note(title, text = '', kind = 'info', ic) {
+    const n = document.createElement('div');
+    n.className = 'note ' + kind;
+    n.innerHTML = `<span class="badge">${icon(ic || (kind === 'good' ? 'check' : kind === 'bad' ? 'alert' : 'paw'))}</span><div class="txt"><b>${esc(title)}</b>${text ? `<span>${esc(text)}</span>` : ''}</div>`;
+    $('notes').prepend(n);
+    while ($('notes').children.length > 3) $('notes').lastElementChild.remove();
+    const close = () => { n.classList.add('out'); setTimeout(() => n.remove(), 300); };
+    n.onclick = close;
+    setTimeout(close, kind === 'bad' ? 5000 : 3200);
+  }
+
+  // bottom sheet
+  let sheetResolve = null;
+  function sheet({ title, text, list = '', ok = 'OK', okClass = 'primary', okIcon }) {
+    $('sheetTitle').textContent = title; $('sheetText').textContent = text; $('sheetList').innerHTML = list;
+    $('sheetList').hidden = !list;
+    $('sheetOk').className = 'btn ' + okClass;
+    $('sheetOk').innerHTML = (okIcon ? icon(okIcon) : '') + `<span class="lbl">${esc(ok)}</span>`;
+    $('scrim').hidden = false; $('sheet').hidden = false;
+    requestAnimationFrame(() => { $('scrim').classList.add('on'); $('sheet').classList.add('on'); });
+    setTimeout(() => $('sheetOk').focus(), 350);
+    return new Promise((r) => { sheetResolve = r; });
+  }
+  function closeSheet(v) {
+    $('scrim').classList.remove('on'); $('sheet').classList.remove('on');
+    setTimeout(() => { $('scrim').hidden = true; $('sheet').hidden = true; }, 380);
+    if (sheetResolve) { sheetResolve(v); sheetResolve = null; }
+  }
+  $('sheetCancel').onclick = () => closeSheet(false);
+  $('sheetOk').onclick = () => closeSheet(true);
+  $('scrim').onclick = () => closeSheet(false);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheetResolve) closeSheet(false); });
 
   async function call(path, opts = {}) {
-    const r = await fetch(API + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(tokenStore ? { Authorization: 'Bearer ' + tokenStore } : {}) } });
+    const r = await fetch(API + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) } });
     const data = await r.json().catch(() => ({}));
     if (r.status === 401 && path !== '/pair/claim') { forget(); throw new Error('This phone is no longer paired.'); }
     if (!r.ok) throw new Error(data.error || 'Something went wrong. Try again.');
@@ -234,140 +436,236 @@ footer{margin-top:18px;text-align:center}
   }
 
   // ---------- pairing ----------
-  function showPair(){ $('appView').hidden = true; $('pairView').hidden = false; clearInterval(pollTimer); }
-  function showApp(){ $('pairView').hidden = true; $('appView').hidden = false; refresh(); clearInterval(pollTimer); pollTimer = setInterval(() => { if (!document.hidden) refresh(); }, 4000); }
-  function forget(){ tokenStore = null; try { localStorage.removeItem('mimoToken'); } catch (e) {} showPair(); }
-
-  $('code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6); $('pairErr').textContent = ''; });
+  const cells = [...document.querySelectorAll('.cell')];
+  function drawCode() {
+    const v = $('code').value;
+    cells.forEach((c, i) => { c.textContent = v[i] || ''; c.classList.toggle('filled', !!v[i]); c.classList.toggle('on', document.activeElement === $('code') && i === Math.min(v.length, 5)); });
+  }
+  $('code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6); $('pairErr').textContent = ''; drawCode(); if (e.target.value.length === 6) $('pairForm').requestSubmit(); });
+  $('code').addEventListener('focus', drawCode); $('code').addEventListener('blur', drawCode);
   $('pairForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const code = $('code').value;
-    if (code.length !== 6) { $('pairErr').textContent = 'The code has 6 characters.'; return; }
-    $('pairBtn').disabled = true; $('pairBtn').textContent = 'Pairing…';
+    if (code.length !== 6) { $('pairErr').textContent = 'The code has 6 characters.'; $('codebox').classList.add('shake'); setTimeout(() => $('codebox').classList.remove('shake'), 400); return; }
+    setLoading($('pairBtn'), true);
     try {
       const label = /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android phone' : 'Browser';
       const d = await call('/pair/claim', { method: 'POST', body: JSON.stringify({ code, label }) });
-      tokenStore = d.token;
-      try { localStorage.setItem('mimoToken', d.token); } catch (e) {}
+      token = d.token; try { localStorage.setItem('mimoToken', d.token); } catch (e) {}
       history.replaceState(null, '', location.pathname);
-      toast('Paired with ' + d.name);
+      vibrate(20);
+      note('Paired with ' + d.name, 'You can now control Mimo from here.', 'good', 'phone');
       showApp();
-    } catch (err) { $('pairErr').textContent = err.message; }
-    finally { $('pairBtn').disabled = false; $('pairBtn').textContent = 'Pair'; }
+    } catch (err) {
+      $('pairErr').textContent = err.message;
+      $('codebox').classList.add('shake'); setTimeout(() => $('codebox').classList.remove('shake'), 400);
+    } finally { setLoading($('pairBtn'), false); }
   });
 
+  function showPair() { $('appView').hidden = true; $('pairView').hidden = false; clearTimeout(pollTimer); drawCode(); }
+  function showApp() { $('pairView').hidden = true; $('appView').hidden = false; refresh(); }
+  function forget() { token = null; try { localStorage.removeItem('mimoToken'); } catch (e) {} showPair(); }
+
   // ---------- commands ----------
-  async function send(type, args, label) {
+  // Sends a command and keeps `btn` busy until the Mac confirms (or it is queued for an offline Mac).
+  async function send(type, args = {}, { btn, label, onDone } = {}) {
+    vibrate();
+    setLoading(btn, true);
     try {
       const d = await call('/remote/commands', { method: 'POST', body: JSON.stringify({ type, args }) });
-      pendingCmds.set(d.id, label);
-      toast(state && state.online ? 'Sent to your Mac' : 'Queued. Your Mac will do it when it comes online.');
-      setTimeout(refresh, 1200);
-    } catch (err) { toast(err.message); }
+      if (!state || !state.online) {
+        setLoading(btn, false);
+        note('Queued', 'Your Mac will do this when it wakes up.', 'info', 'clock');
+        onDone && onDone(null);
+        return;
+      }
+      const timer = setTimeout(() => {
+        if (!pending.has(d.id)) return;
+        pending.delete(d.id); setLoading(btn, false); onDone && onDone(null);
+        note('Still waiting on your Mac', 'It will finish when Mimo catches up.', 'info', 'clock');
+      }, 30000);
+      pending.set(d.id, { done: (ok, msg) => { clearTimeout(timer); setLoading(btn, false); onDone && onDone(ok);
+        ok ? note(msg || label || 'Done', '', 'good') : note('Couldn’t do that', msg || '', 'bad'); vibrate(ok ? 15 : [20, 40, 20]); } });
+      schedule(700);
+    } catch (err) {
+      setLoading(btn, false); onDone && onDone(false);
+      note('Not sent', err.message, 'bad');
+    }
   }
-  $('findBtn').onclick = () => send('scan', {}, 'Looking for things to clean');
-  $('checkBtn').onclick = () => send('check', {}, 'Storage checked');
-  $('pingBtn').onclick = () => send('notify', {}, 'Notification sent');
-  $('notNow').onclick = () => send('dismiss', {}, 'Review dismissed');
-  $('cleanSel').onclick = () => {
-    if (!selected.size) return;
-    send('clean', { ids: [...selected] }, 'Cleaning finished');
-    selectionTouched = false;
+
+  $('scanBtn').onclick = (e) => send('scan', {}, { btn: e.currentTarget, label: 'Looking for things to clean' });
+  $('checkBtn').onclick = (e) => send('check', {}, { btn: e.currentTarget });
+  $('pingBtn').onclick = (e) => send('notify', {}, { btn: e.currentTarget, label: 'Your Mac got a notification' });
+  $('refreshBtn').onclick = async (e) => { const b = e.currentTarget; b.classList.add('spinning'); vibrate(); await refresh(); setTimeout(() => b.classList.remove('spinning'), 400); };
+
+  $('skipBtn').onclick = async (e) => {
+    const ok = await sheet({ title: 'Skip for now?', text: 'Mimo will ask again if your Mac stays low on space.', ok: 'Skip', okIcon: 'x' });
+    if (ok) send('dismiss', {}, { btn: e.target.closest('button'), label: 'Okay, skipped for now' });
   };
-  $('minus').onclick = () => state && state.status && send('setThreshold', { gb: Math.max(5, state.status.cleanBelowGB - 5) }, 'Threshold updated');
-  $('plus').onclick = () => state && state.status && send('setThreshold', { gb: Math.min(500, state.status.cleanBelowGB + 5) }, 'Threshold updated');
-  $('askFirst').onchange = (e) => send('setAskFirst', { on: e.target.checked }, 'Setting updated');
-  $('unpair').onclick = async () => {
-    if (!confirmUnpair) { confirmUnpair = true; $('unpair').textContent = 'Tap again to unpair'; setTimeout(() => { confirmUnpair = false; $('unpair').textContent = 'Unpair this phone'; }, 4000); return; }
-    try { await call('/remote/unpair', { method: 'POST', body: '{}' }); } catch (e) {}
-    forget(); toast('Unpaired');
+  $('cleanBtn').onclick = async (e) => {
+    const btn = e.currentTarget;
+    const f = (state.status.findings || []).filter((x) => selected.has(x.id));
+    if (!f.length) return;
+    const sum = f.reduce((t, x) => t + x.bytes, 0);
+    const perm = f.some((x) => x.permanent);
+    const list = f.map((x) => `<div class="row"><span class="badge">${icon(x.permanent ? 'trash' : 'folder')}</span><div class="grow"><div class="name">${esc(x.name)}</div><div class="sub ${x.permanent ? 'perm' : ''}">${x.permanent ? 'Deleted permanently' : 'Moved to the Bin'}</div></div><span class="size">${fmt(x.bytes)}</span></div>`).join('');
+    const ok = await sheet({ title: 'Clean ' + fmt(sum) + '?', text: perm ? 'Some of this is deleted permanently. Caches rebuild themselves.' : 'Everything goes to the Bin on your Mac, so you can restore it.', list, ok: 'Clean ' + fmt(sum), okIcon: 'sparkles' });
+    if (ok) { touched = false; send('clean', { ids: f.map((x) => x.id) }, { btn, label: 'Cleaning started' }); }
   };
 
-  // ---------- render ----------
+  function setLimit(gb) {
+    if (busyLimit) return;
+    busyLimit = true; renderControls();
+    $('limit').textContent = gb + ' GB';
+    send('setThreshold', { gb }, { onDone: () => { busyLimit = false; renderControls(); } });
+  }
+  $('minus').onclick = () => state && state.status && setLimit(Math.max(5, state.status.cleanBelowGB - 5));
+  $('plus').onclick = () => state && state.status && setLimit(Math.min(500, state.status.cleanBelowGB + 5));
+  $('askFirst').onchange = (e) => {
+    busyAsk = true; renderControls();
+    send('setAskFirst', { on: e.target.checked }, { onDone: (ok) => { busyAsk = false; if (ok === false) e.target.checked = !e.target.checked; renderControls(); } });
+  };
+
+  $('unpairBtn').onclick = async () => {
+    const ok = await sheet({ title: 'Unpair this phone?', text: 'You’ll need a new code from Mimo on your Mac to pair again.', ok: 'Unpair', okClass: 'danger', okIcon: 'logout' });
+    if (!ok) return;
+    try { await call('/remote/unpair', { method: 'POST', body: '{}' }); } catch (e) {}
+    forget(); note('Unpaired', 'This phone can no longer control Mimo.', 'info', 'logout');
+  };
+
+  // ---------- polling ----------
+  function schedule(ms) { clearTimeout(pollTimer); pollTimer = setTimeout(refresh, ms); }
   async function refresh() {
+    if (!token) return;
     try { state = await call('/remote/status'); render(); }
-    catch (err) { if (tokenStore) { $('seen').textContent = 'Can’t reach Mimo’s server'; $('dot').classList.add('off'); } }
+    catch (err) { if (token) { $('seen').textContent = 'Can’t reach Mimo’s server'; $('dot').classList.add('off'); } }
+    const fast = pending.size || (state && state.status && (state.status.isCleaning || state.status.isScanning));
+    if (!document.hidden && token) schedule(fast ? 1500 : 4000);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && token) refresh(); });
+
+  // ---------- render ----------
+  let shownFree = null;
+  function countTo(el, to) {
+    const from = shownFree == null ? 0 : shownFree; shownFree = to;
+    if (from === to) { el.textContent = to; return; }
+    const t0 = performance.now(), dur = 700;
+    const step = (t) => { const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3); el.textContent = Math.round(from + (to - from) * e); if (p < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
   }
 
   function render() {
     const s = state.status;
     $('macName').textContent = state.name || 'Your Mac';
     $('dot').classList.toggle('off', !state.online);
-    $('seen').textContent = state.online ? 'Online · updated ' + ago(s && s.updatedAt || state.lastSeen) : (state.lastSeen ? 'Offline · last seen ' + ago(state.lastSeen) : 'Waiting for your Mac…');
+    $('seen').textContent = state.online ? 'Online · ' + ago((s && s.updatedAt) || state.lastSeen) : (state.lastSeen ? 'Offline · ' + ago(state.lastSeen) : 'Waiting for your Mac');
+    $('offCard').hidden = !!state.online || !state.lastSeen;
+    if (wasOnline === true && !state.online) note('Your Mac went offline', 'It may be asleep.', 'info', 'wifioff');
+    if (wasOnline === false && state.online) note('Your Mac is back online', '', 'good', 'check');
+    wasOnline = state.online;
 
-    // command results
     for (const c of state.commands || []) {
-      if (pendingCmds.has(c.id) && (c.status === 'done' || c.status === 'failed')) {
-        toast(c.status === 'done' ? (c.message || pendingCmds.get(c.id)) : (c.message || 'Your Mac couldn’t do that'));
-        pendingCmds.delete(c.id);
-      }
+      const p = pending.get(c.id);
+      if (p && (c.status === 'done' || c.status === 'failed')) { pending.delete(c.id); p.done(c.status === 'done', c.message); }
     }
     if (!s) return;
 
+    if (lastFreedSeen !== null && s.totalFreed > lastFreedSeen) note('Freed ' + (s.totalFreed - lastFreedSeen) + ' GB', 'You now have ' + s.freeGB + ' GB free.', 'good', 'sparkles');
+    lastFreedSeen = s.totalFreed;
+
     const total = s.totalGB || 1, used = Math.max(0, total - s.freeGB);
-    $('free').textContent = s.freeGB;
-    $('bar').style.strokeDashoffset = 263.9 * (1 - used / total);
+    countTo($('free'), s.freeGB);
+    $('arc').style.strokeDashoffset = 263.9 * (1 - used / total);
     $('mood').textContent = s.mood || '';
     $('used').textContent = used + ' of ' + total + ' GB used';
-    $('rule').textContent = (s.askFirst ? 'Asks before cleaning' : 'Cleans automatically') + ' below ' + s.cleanBelowGB + ' GB';
-    $('limit').textContent = s.cleanBelowGB + ' GB';
-    $('warnAt').textContent = 'Heads-up at ' + (s.cleanBelowGB + 10) + ' GB';
-    if (document.activeElement !== $('askFirst')) $('askFirst').checked = !!s.askFirst;
+    $('rule').textContent = (s.askFirst ? 'Asks first' : 'Auto-cleans') + ' below ' + s.cleanBelowGB + ' GB';
 
     const busy = s.isCleaning ? (s.cleaningStep || 'Cleaning…') : s.isScanning ? 'Looking for things to clean…' : s.isMapping ? 'Mapping your Mac…' : '';
     $('busyCard').hidden = !busy; $('busyText').textContent = busy;
-    $('findBtn').disabled = $('cleanSel').disabled = !!(s.isCleaning || s.isScanning);
+    $('scanBtn').disabled = !!(s.isCleaning || s.isScanning) && !$('scanBtn').classList.contains('loading');
 
-    // review
-    const f = s.findings || [];
-    const showReview = f.length > 0 && (s.pendingReview || s.reviewOpen);
-    $('reviewCard').hidden = !showReview;
-    if (showReview) {
-      if (!selectionTouched) selected = new Set(f.map((x) => x.id));
-      else selected = new Set([...selected].filter((id) => f.some((x) => x.id === id)));
-      $('reviewTitle').textContent = s.pendingReview ? 'Mimo wants to clean these' : 'Ready to clean';
-      $('findings').innerHTML = f.map((x) => `
-        <label class="row">
-          <input type="checkbox" class="check" data-id="${esc(x.id)}" ${selected.has(x.id) ? 'checked' : ''}>
-          <span class="grow">${esc(x.name)}<div class="sub ${x.permanent ? 'perm' : ''}">${x.count} item${x.count === 1 ? '' : 's'} · ${x.permanent ? 'deleted permanently' : 'moved to the Bin'}</div></span>
-          <span class="size">${fmt(x.bytes)}</span>
-        </label>`).join('');
-      $('findings').querySelectorAll('input').forEach((cb) => cb.onchange = () => {
-        selectionTouched = true;
-        cb.checked ? selected.add(cb.dataset.id) : selected.delete(cb.dataset.id);
-        updateTotal(f);
-      });
-      updateTotal(f);
-    }
-
-    // places
-    const p = s.places || [];
-    $('places').innerHTML = p.length ? p.map((x) => `
-      <div class="row">
-        <span class="grow">${esc(x.name)}${x.bytes != null ? `<div class="sub">${fmt(x.bytes)}</div>` : ''}</span>
-        <span class="switch"><input type="checkbox" aria-label="Let Mimo clean ${esc(x.name)}" data-place="${esc(x.id)}" ${x.on ? 'checked' : ''}><span></span></span>
-      </div>`).join('') : '<p class="empty">No places yet. Mimo is still mapping your Mac.</p>';
-    $('places').querySelectorAll('input').forEach((cb) => cb.onchange = () => send('setPlace', { id: cb.dataset.place, on: cb.checked }, 'Place updated'));
-
-    // activity
-    const a = s.activity || [];
-    $('feed').innerHTML = a.length ? a.map((x) => `<div><time>${new Date(x.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time><span>${esc(x.text)}</span></div>`).join('') : '<p class="empty">Nothing yet.</p>';
+    renderReview(s);
+    renderControls();
+    renderPlaces(s);
+    renderFeed(s);
   }
 
+  function renderReview(s) {
+    const f = s.findings || [];
+    const show = f.length > 0 && s.pendingReview;
+    const card = $('reviewCard');
+    if (show && card.hidden) { card.hidden = false; card.classList.remove('enter'); void card.offsetWidth; card.classList.add('enter'); vibrate(15); }
+    if (!show) { card.hidden = true; return; }
+    if (!touched) selected = new Set(f.map((x) => x.id));
+    else selected = new Set([...selected].filter((id) => f.some((x) => x.id === id)));
+    $('reviewTitle').textContent = 'Mimo wants to clean these';
+    const key = f.map((x) => x.id + x.bytes).join('|') + [...selected].join(',');
+    if ($('findings').dataset.key !== key) {
+      $('findings').dataset.key = key;
+      $('findings').innerHTML = f.map((x) => `
+        <label class="row pick">
+          <input type="checkbox" data-id="${esc(x.id)}" ${selected.has(x.id) ? 'checked' : ''}>
+          <span class="box">${icon('check')}</span>
+          <span class="grow"><div class="name">${esc(x.name)}</div><div class="sub ${x.permanent ? 'perm' : ''}">${x.count.toLocaleString()} item${x.count === 1 ? '' : 's'} · ${x.permanent ? 'permanent' : 'to Bin'}</div></span>
+          <span class="size">${fmt(x.bytes)}</span>
+        </label>`).join('');
+      $('findings').querySelectorAll('input').forEach((cb) => cb.onchange = () => { vibrate(8); touched = true; cb.checked ? selected.add(cb.dataset.id) : selected.delete(cb.dataset.id); updateTotal(f); $('findings').dataset.key = ''; });
+    }
+    updateTotal(f);
+  }
   function updateTotal(f) {
     const sum = f.filter((x) => selected.has(x.id)).reduce((t, x) => t + x.bytes, 0);
     $('selTotal').textContent = fmt(sum);
-    $('cleanSel').textContent = selected.size ? 'Clean ' + fmt(sum) : 'Clean selected';
-    $('cleanSel').disabled = !selected.size;
+    if (!$('cleanBtn').classList.contains('loading')) $('cleanBtn').querySelector('.lbl').textContent = selected.size ? 'Clean ' + fmt(sum) : 'Clean';
+    $('cleanBtn').disabled = !selected.size || (state.status && state.status.isCleaning);
   }
 
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && tokenStore) refresh(); });
+  function renderControls() {
+    const s = state && state.status; if (!s) return;
+    if (!busyLimit) $('limit').textContent = s.cleanBelowGB + ' GB';
+    $('limit').classList.toggle('pending', busyLimit);
+    $('minus').disabled = busyLimit || s.cleanBelowGB <= 5;
+    $('plus').disabled = busyLimit || s.cleanBelowGB >= 500;
+    $('warnAt').textContent = 'Heads-up at ' + (s.cleanBelowGB + 10) + ' GB';
+    $('askSwitch').classList.toggle('busy', busyAsk);
+    if (!busyAsk) $('askFirst').checked = !!s.askFirst;
+  }
+
+  const placeIcon = (id) => ({ caches: 'disk', whatsapp: 'bell', bin: 'trash', node_modules: 'folder', installers: 'folder', logs: 'clock' }[id] || 'folder');
+  function renderPlaces(s) {
+    const p = s.places || [];
+    if (!p.length) { $('places').innerHTML = '<p class="empty">Mimo is still mapping your Mac.</p>'; return; }
+    const key = p.map((x) => x.id + x.on + x.bytes).join('|') + [...busyPlaces].join(',');
+    if ($('places').dataset.key === key) return;
+    $('places').dataset.key = key;
+    $('places').innerHTML = p.map((x) => `
+      <div class="row">
+        <span class="badge">${icon(placeIcon(x.id))}</span>
+        <div class="grow"><div class="name">${esc(x.name)}</div>${x.bytes != null ? `<div class="sub">${fmt(x.bytes)}</div>` : ''}</div>
+        <span class="switch ${busyPlaces.has(x.id) ? 'busy' : ''}"><input type="checkbox" aria-label="Let Mimo clean ${esc(x.name)}" data-place="${esc(x.id)}" ${x.on ? 'checked' : ''}><span class="track"></span><span class="knob"></span></span>
+      </div>`).join('');
+    $('places').querySelectorAll('input').forEach((cb) => cb.onchange = () => {
+      const id = cb.dataset.place;
+      busyPlaces.add(id); cb.closest('.switch').classList.add('busy');
+      send('setPlace', { id, on: cb.checked }, { onDone: (ok) => { busyPlaces.delete(id); if (ok === false) cb.checked = !cb.checked; $('places').dataset.key = ''; cb.closest('.switch') && cb.closest('.switch').classList.remove('busy'); } });
+    });
+  }
+
+  function renderFeed(s) {
+    const a = s.activity || [];
+    const key = a.map((x) => x.time).join('|');
+    if ($('feed').dataset.key === key) return;
+    $('feed').dataset.key = key;
+    const ic = (t) => /phone/i.test(t) ? 'phone' : /Cleaned|freed/i.test(t) ? 'sparkles' : /Found|Looked/i.test(t) ? 'search' : /tight|Low/i.test(t) ? 'alert' : /Mapp/i.test(t) ? 'map' : /notification|update/i.test(t) ? 'bell' : 'paw';
+    $('feed').innerHTML = a.length ? a.map((x) => `<div class="it"><span class="badge">${icon(ic(x.text))}</span><div class="txt">${esc(x.text)}<time>${new Date(x.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div></div>`).join('') : '<p class="empty">Nothing yet.</p>';
+  }
+
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
   // QR codes open /app/#pair=CODE
   const m = location.hash.match(/pair=([A-Za-z0-9]{6})/);
-  if (tokenStore) showApp();
-  else { showPair(); if (m) { $('code').value = m[1].toUpperCase(); $('pairForm').requestSubmit(); } }
+  if (token) showApp();
+  else { showPair(); if (m) { $('code').value = m[1].toUpperCase(); drawCode(); $('pairForm').requestSubmit(); } }
 })();
 </script>
 </body>

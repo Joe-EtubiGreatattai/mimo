@@ -1,5 +1,5 @@
 // Caches the app shell so Mimo opens instantly; live data always comes from the network.
-const CACHE = 'mimo-remote-v1';
+const CACHE = 'mimo-remote-v2';
 const SHELL = ['/app/', '/app/manifest.webmanifest', '/app/icon-192.png', '/app/icon-512.png', '/app/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
