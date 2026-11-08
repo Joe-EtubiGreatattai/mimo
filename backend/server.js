@@ -101,6 +101,17 @@ app.get('/v1/downloads', async (req, res) => {
   try { res.json({ downloads: await downloads.countDocuments() }); }
   catch (e) { console.error(e); res.status(500).json({ error: 'Could not load downloads' }); }
 });
+// Public running total for the website: how much space Mimo has cleared for everyone. Cached briefly.
+let clearedCache = { at: 0, body: null };
+app.get('/v1/cleared', async (req, res) => {
+  try {
+    if (!clearedCache.body || Date.now() - clearedCache.at > 20_000) {
+      const [a] = await cleanups.aggregate([{ $group: { _id: null, bytes: { $sum: '$bytes' }, n: { $sum: 1 }, computers: { $addToSet: '$installId' } } }, { $project: { bytes: 1, n: 1, computers: { $size: '$computers' } } }]).toArray();
+      clearedCache = { at: Date.now(), body: { bytes: (a || {}).bytes || 0, cleans: (a || {}).n || 0, computers: (a || {}).computers || 0 } };
+    }
+    res.set('Cache-Control', 'public, max-age=20').json(clearedCache.body);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Could not load total' }); }
+});
 app.post('/v1/downloads', rateLimit, express.text({ type: ['text/plain', 'application/json'], limit: '1kb' }), async (req, res) => {
   try {
     let source = 'other';
