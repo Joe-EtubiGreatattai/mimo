@@ -362,7 +362,7 @@ footer a{color:inherit}
     let svg = `<svg role="img" aria-label="${esc(labels.title)}"><g class="axis">`;
     for (let v = 0; v <= top; v += step) svg += `<line class="${v ? 'gridline' : 'baseline'}" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${labels.axis ? labels.axis(v) : v}</text>`;
     const every = Math.ceil(n / Math.max(2, Math.floor(iw / 64)));
-    rows.forEach((r, i) => { if (i % every === 0 || i === n - 1) { const d = new Date(r.day + 'T00:00:00'); svg += `<text x="${padL + slot * i + slot / 2}" y="${H - 6}" text-anchor="middle">${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}</text>`; } });
+    rows.forEach((r, i) => { if ((i % every === 0 && n - 1 - i >= every * 0.75) || i === n - 1) { const d = new Date(r.day + 'T00:00:00'); svg += `<text x="${padL + slot * i + slot / 2}" y="${H - 6}" text-anchor="middle">${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}</text>`; } });
     svg += '</g>';
     rows.forEach((r, i) => {
       const x = padL + slot * i + (slot - bw) / 2;
@@ -463,7 +463,7 @@ footer a{color:inherit}
     countTo($('total'), I.total, 'total');
     const ch = change(I.inRange, I.prevRange); $('delta').textContent = ch.text; $('delta').className = 'delta ' + ch.cls;
     countTo($('kRange'), I.inRange, 'range'); $('kRangeSub').textContent = `${nf(I.today)} in the last 24 hours`;
-    countTo($('kDl'), L.inRange, 'dl'); $('kDlSub').textContent = L.inRange ? `${pct(I.inRange, L.inRange)}% became installs` : `${nf(L.total)} all time`;
+    countTo($('kDl'), L.inRange, 'dl'); $('kDlSub').textContent = D.github && D.github.total ? `${nf(D.github.total)} downloads in total` : `${nf(L.total)} clicks all time`;
     countTo($('kPh'), P.paired, 'ph'); $('kPhSub').textContent = `${nf(P.computers)} computer${P.computers === 1 ? '' : 's'} · ${nf(P.online)} online now`;
     $('instHint').textContent = `New computers running Mimo, last ${days} days`;
     $('dlHint').textContent = `Clicks on the website’s download buttons, last ${days} days`;

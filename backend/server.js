@@ -89,6 +89,8 @@ app.post('/v1/cleanups', rateLimit, async (req, res) => {
       platform: platform === 'windows' ? 'windows' : 'macos', appVersion: clean(appVersion), arch: clean(arch, 12),
       trigger: ['auto', 'review', 'phone', 'manual'].includes(trigger) ? trigger : 'other',
     });
+    // a clean also tells us which version that computer runs now
+    if (clean(appVersion)) await installs.updateOne({ installId: installId.toLowerCase() }, { $set: { appVersion: clean(appVersion), lastSeen: new Date() } }).catch(() => {});
     res.status(201).json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Could not record cleanup' }); }
 });
@@ -153,6 +155,21 @@ async function stats() {
 
 // Everything the stats dashboard needs, for the last N days (7, 30 or 90). All anonymous counts.
 let devicesCol = null;
+// Real downloads, counted by GitHub across every release (includes links shared outside the website)
+let gh = { mac: 0, windows: 0, total: 0, at: 0 };
+async function githubDownloads() {
+  if (Date.now() - gh.at < 600_000) return gh;
+  try {
+    const r = await fetch('https://api.github.com/repos/Joe-EtubiGreatattai/mimo/releases?per_page=100', { headers: { 'User-Agent': 'mimo-backend', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error('GitHub ' + r.status);
+    let mac = 0, windows = 0;
+    for (const rel of await r.json()) for (const a of rel.assets || []) {
+      if (/\.dmg$/i.test(a.name)) mac += a.download_count; else if (/\.exe$/i.test(a.name)) windows += a.download_count;
+    }
+    gh = { mac, windows, total: mac + windows, at: Date.now() };
+  } catch (e) { console.error('github downloads', e.message); gh.at = Date.now() - 540_000; }
+  return gh;
+}
 app.get('/v1/dashboard', async (req, res) => {
   try {
     const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
@@ -187,6 +204,7 @@ app.get('/v1/dashboard', async (req, res) => {
       cleanups.aggregate([{ $group: { _id: '$trigger', n: { $sum: 1 }, bytes: { $sum: '$bytes' } } }]).toArray(),
       cleanups.aggregate([{ $group: { _id: '$platform', bytes: { $sum: '$bytes' } } }]).toArray(),
     ]);
+    const G = await githubDownloads();
     const series = [];
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(now - i * DAY).toISOString().slice(0, 10);
@@ -206,6 +224,7 @@ app.get('/v1/dashboard', async (req, res) => {
       days, updatedAt: new Date().toISOString(),
       installs: { total, mac: p.macos || 0, windows: p.windows || 0, inRange, prevRange, today },
       downloads: { total: dlTotal, inRange: dlRange, prevRange: dlPrev, bySource: Object.fromEntries(dlBySource.map((x) => [x._id || 'other', x.n])) },
+      github: { mac: G.mac, windows: G.windows, total: G.total },
       phones: { paired: (phoneAgg[0] || {}).phones || 0, computers: (phoneAgg[0] || {}).macs || 0, online },
       windowsWaitlist: waiting,
       cleared: {
