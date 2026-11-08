@@ -288,8 +288,11 @@ final class Mimo: ObservableObject {
     }
 
     func reportInstallIfNeeded() {
-        guard countInstall, !d.bool(forKey: "installReported"),
+        // Report once per install and again after each update, so the stats show which version people run.
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        guard countInstall, d.string(forKey: "installReportedVersion") != version,
               Date().timeIntervalSince(lastInstallAttempt) > 3600 else { return }
+        let firstTime = !d.bool(forKey: "installReported")
         lastInstallAttempt = Date()
         let id = installId
         #if arch(arm64)
@@ -300,7 +303,7 @@ final class Mimo: ObservableObject {
         let v = ProcessInfo.processInfo.operatingSystemVersion
         let body: [String: String] = [
             "installId": id,
-            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            "appVersion": version,
             "osVersion": "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)",
             "arch": arch,
         ]
@@ -312,7 +315,8 @@ final class Mimo: ObservableObject {
             guard let code = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) else { return }
             DispatchQueue.main.async {
                 self.d.set(true, forKey: "installReported")
-                self.log("Install counted anonymously")
+                self.d.set(version, forKey: "installReportedVersion")
+                if firstTime { self.log("Install counted anonymously") }
             }
         }.resume()
     }

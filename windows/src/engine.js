@@ -426,11 +426,13 @@ class Engine extends EventEmitter {
   }
 
   async reportInstall() {
-    if (!this.s.countInstall || this.s.installReported || !this.fetch) return;
+    // once per install, and again after each update so the stats show which version people run
+    if (!this.s.countInstall || this.s.installReportedVersion === this.appVersion || !this.fetch) return;
+    const firstTime = !this.s.installReported;
     try {
       const r = await this.fetch(API + '/installs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ installId: this.s.installId, appVersion: this.appVersion, osVersion: `Windows ${os.release()}`, arch: process.arch, platform: this.platform }) });
-      if (r.ok) { this.s.installReported = true; this.save(); this.log('Install counted anonymously'); }
+      if (r.ok) { this.s.installReported = true; this.s.installReportedVersion = this.appVersion; this.save(); if (firstTime) this.log('Install counted anonymously'); }
     } catch {}
   }
 
