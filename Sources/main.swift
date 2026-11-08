@@ -182,7 +182,7 @@ final class Mimo: ObservableObject {
     @Published var mapCurrent = ""
 
     // settings
-    @Published var cleanBelowGB: Int { didSet { d.set(cleanBelowGB, forKey: "cleanBelowGB") } }
+    @Published var cleanBelowGB: Int { didSet { d.set(cleanBelowGB, forKey: "cleanBelowGB"); d.removeObject(forKey: "lastCheckIn") } }
     @Published var askFirst: Bool { didSet { d.set(askFirst, forKey: "askFirst") } }
     @Published var reportMinutes: Int { didSet { d.set(reportMinutes, forKey: "reportMinutes") } }
     @Published var enabled: [String: Bool] { didSet { d.set(enabled, forKey: "enabledTargets") } }
@@ -285,6 +285,27 @@ final class Mimo: ObservableObject {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         URLSession.shared.dataTask(with: req).resume()
+    }
+
+    /// Once a day: the "clean below" level chosen here and how much space this Mac has. Anonymous, same switch as the install count.
+    private var lastCheckInAttempt = Date.distantPast
+    func checkInIfDue() {
+        guard countInstall, totalGB > 0, Date().timeIntervalSince(lastCheckInAttempt) > 3600 else { return }
+        if let last = d.object(forKey: "lastCheckIn") as? Date, Date().timeIntervalSince(last) < 86_400 { return }
+        lastCheckInAttempt = Date()
+        let body: [String: Any] = [
+            "installId": installId, "platform": "macos",
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+            "cleanBelowGB": cleanBelowGB, "askFirst": askFirst, "freeGB": freeGB, "totalGB": totalGB,
+        ]
+        var req = URLRequest(url: URL(string: "https://mimo.techtree.lifestyle/v1/checkins")!, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: req) { _, resp, _ in
+            guard let code = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) else { return }
+            DispatchQueue.main.async { self.d.set(Date(), forKey: "lastCheckIn") }
+        }.resume()
     }
 
     func reportInstallIfNeeded() {
@@ -399,6 +420,7 @@ final class Mimo: ObservableObject {
         readDisk(); lastCheck = Date()
         if manual { add("magnifyingglass", "Checked: \(freeGB) GB free") }
         reportInstallIfNeeded()
+        checkInIfDue()
         if let m = map, Date().timeIntervalSince(m.date) > 7 * 86_400, !isMapping, !isCleaning { runMap(firstTime: false) }
         if freeGB < cleanBelowGB && !isCleaning && !isScanning {
             if askFirst {

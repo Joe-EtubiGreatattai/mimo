@@ -86,6 +86,13 @@ const notes = []; e.on('notify', (n) => notes.push(n.body));
   await e.reportInstall();
   const ping = calls.find((c) => c.url.endsWith('/installs'));
   assert(ping && ping.body.platform === 'windows' && /^[0-9a-f-]{36}$/.test(ping.body.installId), 'install ping');
+  // daily check-in
+  e.s.lastCheckIn = 0; e.lastCheckInAttempt = 0; e.total = e.total || 256;
+  await e.checkIn();
+  const ci = calls.find((c) => c.url.endsWith('/checkins'));
+  assert(ci && ci.body.cleanBelowGB === e.s.cleanBelowGB && typeof ci.body.freeGB === 'number' && ci.body.totalGB > 0 && !('places' in ci.body), 'daily check-in sends level and free space only');
+  const n1 = calls.filter((c) => c.url.endsWith('/checkins')).length; await e.checkIn();
+  assert.strictEqual(calls.filter((c) => c.url.endsWith('/checkins')).length, n1, 'check-in only once a day');
   await e.startPairing();
   assert.strictEqual(e.pairCode, 'ABC234');
   await e.remoteTick();

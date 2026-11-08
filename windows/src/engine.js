@@ -59,7 +59,7 @@ class Engine extends EventEmitter {
     if (!this.settingsFile) return;
     try { fs.mkdirSync(path.dirname(this.settingsFile), { recursive: true }); fs.writeFileSync(this.settingsFile, JSON.stringify(this.s, null, 2)); } catch {}
   }
-  set(key, value) { this.s[key] = value; this.save(); this.changed(); }
+  set(key, value) { this.s[key] = value; if (key === 'cleanBelowGB') this.s.lastCheckIn = 0; this.save(); this.changed(); }
 
   changed() { this.statusDirty = true; this.emit('change'); }
   add(icon, text) {
@@ -234,6 +234,7 @@ class Engine extends EventEmitter {
   check(manual = false) {
     this.readDisk(); this.lastCheck = Date.now();
     if (manual) this.add('search', `Checked: ${this.free} GB free`);
+    this.checkIn();
     if (this.map && Date.now() - this.map.date > 7 * 86_400_000 && !this.isMapping && !this.isCleaning) this.runMap(false);
     if (this.free < this.s.cleanBelowGB && !this.isCleaning && !this.isScanning) {
       if (this.s.askFirst) {
@@ -422,6 +423,19 @@ class Engine extends EventEmitter {
     try {
       await this.fetch(API + '/cleanups', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ installId: this.s.installId, platform: this.platform, appVersion: this.appVersion, arch: process.arch, trigger, bytes, categories }) });
+    } catch {}
+  }
+
+  // once a day: the "clean below" level chosen here and how much space this PC has (anonymous)
+  async checkIn() {
+    if (!this.s.countInstall || !this.fetch || !this.total) return;
+    const now = Date.now();
+    if (now - (this.lastCheckInAttempt || 0) < 3_600_000 || now - (this.s.lastCheckIn || 0) < 86_400_000) return;
+    this.lastCheckInAttempt = now;
+    try {
+      const r = await this.fetch(API + '/checkins', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ installId: this.s.installId, platform: this.platform, appVersion: this.appVersion, cleanBelowGB: this.s.cleanBelowGB, askFirst: this.s.askFirst, freeGB: this.free, totalGB: this.total }) });
+      if (r.ok) { this.s.lastCheckIn = now; this.save(); }
     } catch {}
   }
 

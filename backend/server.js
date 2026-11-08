@@ -95,6 +95,27 @@ app.post('/v1/cleanups', rateLimit, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Could not record cleanup' }); }
 });
 
+// Daily check-in: the "clean below" level each person picked and how much free space they have. Anonymous.
+app.post('/v1/checkins', rateLimit, async (req, res) => {
+  try {
+    const { installId, platform, appVersion, cleanBelowGB, askFirst, freeGB, totalGB } = req.body || {};
+    const lvl = Number(cleanBelowGB), free = Number(freeGB), total = Number(totalGB);
+    if (!UUID.test(installId || '') || !(lvl >= 1 && lvl <= 2000) || !(free >= 0 && free <= 100000) || !(total > 0 && total <= 100000))
+      return res.status(400).json({ error: 'Bad check-in' });
+    const now = new Date();
+    await installs.updateOne(
+      { installId: installId.toLowerCase() },
+      {
+        $setOnInsert: { installId: installId.toLowerCase(), firstSeen: now },
+        $set: { lastSeen: now, checkedInAt: now, appVersion: clean(appVersion), platform: platform === 'windows' ? 'windows' : 'macos',
+          cleanBelowGB: Math.round(lvl), askFirst: askFirst !== false, freeGB: Math.round(free), totalGB: Math.round(total) },
+      },
+      { upsert: true }
+    );
+    res.status(201).json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Could not record check-in' }); }
+});
+
 // Download button clicks. The page sends these with sendBeacon (plain text), so accept text too.
 const SOURCES = new Set(['hero', 'footer', 'nav', 'readme', 'other', 'hero-win', 'footer-win', 'nav-win']);
 app.get('/v1/downloads', async (req, res) => {
@@ -216,6 +237,23 @@ app.get('/v1/dashboard', async (req, res) => {
       cleanups.aggregate([{ $group: { _id: '$platform', bytes: { $sum: '$bytes' } } }]).toArray(),
     ]);
     const G = await githubDownloads();
+    // Storage levels from computers that checked in during the last 30 days
+    const lv = await installs.find({ checkedInAt: { $gte: new Date(now - 30 * DAY) } }, { projection: { _id: 0, platform: 1, cleanBelowGB: 1, askFirst: 1, freeGB: 1, totalGB: 1 } }).toArray();
+    const median = (xs) => { if (!xs.length) return 0; const a = [...xs].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2); };
+    const bucket = (list, val, edges) => edges.map(([label, lo, hi]) => {
+      const inB = list.filter((x) => val(x) >= lo && val(x) < hi);
+      return { label, n: inB.length, mac: inB.filter((x) => x.platform !== 'windows').length, windows: inB.filter((x) => x.platform === 'windows').length };
+    });
+    const levels = {
+      computers: lv.length,
+      medianCleanBelow: median(lv.map((x) => x.cleanBelowGB)),
+      medianFree: median(lv.map((x) => x.freeGB)),
+      medianFreePct: median(lv.map((x) => Math.round((x.freeGB / Math.max(1, x.totalGB)) * 100))),
+      runningLow: lv.filter((x) => x.freeGB < x.cleanBelowGB).length,
+      askFirst: lv.filter((x) => x.askFirst !== false).length,
+      cleanBelow: bucket(lv, (x) => x.cleanBelowGB, [['Under 10 GB', 0, 10], ['10–14 GB', 10, 15], ['15 GB (default)', 15, 16], ['16–25 GB', 16, 26], ['26–50 GB', 26, 51], ['Over 50 GB', 51, Infinity]]),
+      free: bucket(lv, (x) => x.freeGB, [['Under 10 GB', 0, 10], ['10–25 GB', 10, 25], ['25–50 GB', 25, 50], ['50–100 GB', 50, 100], ['100–250 GB', 100, 250], ['250 GB or more', 250, Infinity]]),
+    };
     const series = [];
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(now - i * DAY).toISOString().slice(0, 10);
@@ -235,6 +273,7 @@ app.get('/v1/dashboard', async (req, res) => {
       days, updatedAt: new Date().toISOString(),
       installs: { total, mac: p.macos || 0, windows: p.windows || 0, inRange, prevRange, today },
       downloads: { total: dlTotal, inRange: dlRange, prevRange: dlPrev, bySource: Object.fromEntries(dlBySource.map((x) => [x._id || 'other', x.n])) },
+      levels,
       github: { mac: G.mac, windows: G.windows, total: G.total },
       phones: { paired: (phoneAgg[0] || {}).phones || 0, computers: (phoneAgg[0] || {}).macs || 0, online },
       windowsWaitlist: waiting,

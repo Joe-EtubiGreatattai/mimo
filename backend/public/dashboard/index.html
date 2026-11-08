@@ -99,6 +99,12 @@ table.data th:first-child,table.data td:first-child{text-align:left}
 .tablewrap{max-height:260px;overflow:auto}
 
 /* space cleared */
+.levels{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:22px}
+.levels .two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;min-width:0}
+.levels .two h3{font-size:14px;margin:0 0 2px}
+.levels .two .hint{margin-bottom:12px}
+@media (max-width:1000px){.levels{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.levels .two{grid-template-columns:minmax(0,1fr)}}
 .cleared{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:22px;
   background:linear-gradient(135deg,color-mix(in srgb,var(--good) 9%,var(--card)) 0%,var(--card) 55%)}
 .cl-big{font:800 clamp(44px,6vw,68px)/1 var(--body);letter-spacing:-2px;margin:8px 0 6px}
@@ -235,6 +241,29 @@ footer a{color:inherit}
         </div>
       </header>
       <div class="chart" id="clChart"></div>
+    </div>
+  </section>
+
+  <section class="card levels" style="animation-delay:.03s">
+    <div>
+      <h2><span class="eyebrow-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>How people keep their storage</h2>
+      <div class="cl-sub" id="lvSub">From computers that checked in during the last 30 days</div>
+      <div class="cl-stats">
+        <div class="cl-stat"><b class="num" id="lvLevel">–</b><span>typical "clean below" level</span></div>
+        <div class="cl-stat"><b class="num" id="lvFree">–</b><span id="lvFreeLbl">typical free space</span></div>
+        <div class="cl-stat"><b class="num" id="lvLow">–</b><span>running low right now</span></div>
+        <div class="cl-stat"><b class="num" id="lvAsk">–</b><span>ask before Mimo cleans</span></div>
+      </div>
+    </div>
+    <div class="two">
+      <div style="min-width:0">
+        <h3>The level people pick</h3><div class="hint">Mimo steps in below this much free space</div>
+        <div class="hbars" id="lvLevels"></div>
+      </div>
+      <div style="min-width:0">
+        <h3>Free space right now</h3><div class="hint">How much room computers have left</div>
+        <div class="hbars" id="lvFreeBars"></div>
+      </div>
     </div>
   </section>
 
@@ -489,6 +518,17 @@ footer a{color:inherit}
     $('clHint').textContent = `Space cleared, last ${days} days`;
     const catMax = Math.max(...CL.categories.map((c) => c.bytes), 1);
     $('clCats').innerHTML = '';
+    const LV = D.levels || { computers: 0, cleanBelow: [], free: [] };
+    const pctOf = (n) => LV.computers ? Math.round((n / LV.computers) * 100) + '%' : '–';
+    $('lvSub').textContent = LV.computers ? `From ${nf(LV.computers)} computer${LV.computers === 1 ? '' : 's'} that checked in during the last 30 days` : 'Computers on Mimo 1.4.2 or later check in once a day';
+    $('lvLevel').textContent = LV.computers ? `${nf(LV.medianCleanBelow)} GB` : '–';
+    $('lvFree').textContent = LV.computers ? `${nf(LV.medianFree)} GB` : '–';
+    $('lvFreeLbl').textContent = LV.computers ? `typical free space (${LV.medianFreePct}% of the disk)` : 'typical free space';
+    $('lvLow').textContent = LV.computers ? `${nf(LV.runningLow)} of ${nf(LV.computers)}` : '–';
+    $('lvAsk').textContent = pctOf(LV.askFirst);
+    const lvMax = Math.max(1, ...LV.cleanBelow.map((b) => b.n), ...LV.free.map((b) => b.n));
+    hbars($('lvLevels'), LV.computers ? LV.cleanBelow.map((b) => ({ label: esc(b.label), n: b.n, segs: segsOf(b) })) : [], lvMax, 'No check-ins yet');
+    hbars($('lvFreeBars'), LV.computers ? LV.free.map((b) => ({ label: esc(b.label), n: b.n, segs: segsOf(b) })) : [], lvMax, 'No check-ins yet');
     hbars($('clCats'), CL.categories.map((c) => ({ label: esc(c.name), n: c.bytes, segs: [{ n: c.mac, color: 'var(--mac)' }, { n: c.windows, color: 'var(--win)' }] })), catMax, 'Nothing cleared yet');
     $('clCats').querySelectorAll('.t b').forEach((b, i) => b.textContent = bytes(CL.categories[i].bytes));
     const trigName = { review: 'Approved on the Review screen', auto: 'Cleaned automatically', phone: 'Approved from a phone', manual: 'Clean now button' };
