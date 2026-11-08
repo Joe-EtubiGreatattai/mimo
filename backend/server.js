@@ -26,7 +26,7 @@ let installs, waitlist, downloads, cleanups;
 
 // The landing page (GitHub Pages) calls the Windows waitlist from the browser.
 const ALLOWED_ORIGINS = ['https://joe-etubigreatattai.github.io'];
-app.use(['/v1/windows', '/v1/downloads'], (req, res, next) => {
+app.use(['/v1/windows', '/v1/downloads', '/v1/cleared'], (req, res, next) => {
   const o = req.headers.origin;
   if (o && (ALLOWED_ORIGINS.includes(o) || /^https?:\/\/localhost(:\d+)?$/.test(o))) {
     res.set('Access-Control-Allow-Origin', o);
