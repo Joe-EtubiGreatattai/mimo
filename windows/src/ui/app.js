@@ -218,6 +218,11 @@
         <div class="row"><div class="grow"><div class="name">Start Mimo when I sign in</div><div class="sub">He waits quietly in the system tray.</div></div>
           <span class="switch"><input type="checkbox" id="startAtLogin" aria-label="Start Mimo when I sign in" ${st.startAtLogin ? 'checked' : ''}><span class="track"></span><span class="knob"></span></span></div>
       </section>
+      <section class="card"><h2>${icon('download')}Updates</h2>
+        <div class="row"><div class="grow"><div class="name">Update automatically</div><div class="sub">Mimo checks for new versions every few hours and installs them when he isn't busy.</div></div>
+          <span class="switch"><input type="checkbox" id="autoUpdate" aria-label="Update automatically" ${st.autoUpdate ? 'checked' : ''}><span class="track"></span><span class="knob"></span></span></div>
+        <div class="row"><div class="grow"><div class="sub">${esc(S.updateStatus || `You're running Mimo ${S.version}.`)}</div></div><button class="btn ghost" id="checkUpdate">${icon('refresh')}<span>Check now</span></button></div>
+      </section>
       <div class="btns"><button class="btn ghost" id="openLog">${icon('clock')}<span>Open log</span></button><button class="btn ghost" id="quit">${icon('power')}<span>Quit Mimo</span></button></div>
       <p class="sub" style="text-align:center;margin:4px 0 0">Mimo ${esc(S.version)}</p>`;
   }
@@ -275,11 +280,12 @@
     on('limUp', (b) => act(b, 'setting', { key: 'cleanBelowGB', value: Math.min(500, S.settings.cleanBelowGB + 5) }));
     document.querySelectorAll('input[name="ask"]').forEach((r) => r.onchange = () => act(null, 'setting', { key: 'askFirst', value: r.value === '1' }));
     const every = $('every'); if (every) every.onchange = () => act(null, 'setting', { key: 'reportMinutes', value: Number(every.value) });
-    ['countInstall', 'startAtLogin'].forEach((k) => { const el = $(k); if (el) el.onchange = () => act(null, 'setting', { key: k, value: el.checked }); });
+    ['countInstall', 'startAtLogin', 'autoUpdate'].forEach((k) => { const el = $(k); if (el) el.onchange = () => act(null, 'setting', { key: k, value: el.checked }); });
     on('testNote', (b) => act(b, 'testNotification', {}, 'Notification sent'));
     on('pair', (b) => act(b, 'pair'));
     on('cancelPair', (b) => act(b, 'cancelPair'));
     on('unpair', async (b) => { if (await confirmSheet({ title: 'Unpair all phones?', text: 'Your phones will stop seeing and controlling Mimo.', ok: 'Unpair', danger: true })) act(b, 'unpairAll', {}, 'Phones unpaired'); });
+    on('checkUpdate', (b) => act(b, 'checkUpdate'));
     on('openLog', () => window.mimo.action('openLog'));
     on('quit', async (b) => { if (await confirmSheet({ title: 'Quit Mimo?', text: 'I’ll stop watching your storage until you open me again.', ok: 'Quit', danger: true })) act(b, 'quit'); });
   }

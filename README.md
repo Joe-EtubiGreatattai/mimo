@@ -23,6 +23,7 @@ A tiny Mac menu bar app that watches your free space every minute and cleans up 
 - **You choose what he cleans.** Turn each category on or off in Settings.
 - **Control him from your phone.** Settings › Phone › Pair a phone shows a QR code. Your phone gets Mimo Remote, an app you can add to your Home Screen: live free space, approve what he found, change settings. Phones only see totals and categories, never file names.
 - **Checks in with you.** Notifications every 15 min, 30 min, 1 hour or 3 hours, so you know he's on patrol.
+- **Keeps himself up to date.** From 1.5.0 Mimo checks for new versions every few hours and installs them by himself when he isn't busy. Switch it off in Settings › Updates.
 - **Shows his work.** Open his window to see a storage ring, what he can clean (with sizes) and a live activity feed.
 
 ## What he cleans

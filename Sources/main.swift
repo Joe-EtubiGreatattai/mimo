@@ -2,6 +2,7 @@ import SwiftUI
 import ServiceManagement
 import UserNotifications
 import CoreImage.CIFilterBuiltins
+import CryptoKit
 
 // MARK: - App
 
@@ -189,6 +190,8 @@ final class Mimo: ObservableObject {
     @Published var daysOverride: [String: Int] { didSet { d.set(daysOverride, forKey: "daysOverride") } }
     @Published var customPlaces: [CleanTarget] { didSet { d.set(try? JSONEncoder().encode(customPlaces), forKey: "customPlaces") } }
     @Published var countInstall: Bool { didSet { d.set(countInstall, forKey: "countInstall") } }
+    @Published var autoUpdate: Bool { didSet { d.set(autoUpdate, forKey: "autoUpdate") } }
+    @Published var updateStatus = ""
 
     // phone remote
     @Published var pairCode: String?
@@ -230,6 +233,7 @@ final class Mimo: ObservableObject {
         if days["installers"] == nil, let old = d.object(forKey: "installerDays") as? Int { days["installers"] = old }
         daysOverride = days
         countInstall = (d.object(forKey: "countInstall") as? Bool) ?? true
+        autoUpdate = (d.object(forKey: "autoUpdate") as? Bool) ?? true
         pairedPhones = d.integer(forKey: "pairedPhones")
         customPlaces = (d.data(forKey: "customPlaces").flatMap { try? JSONDecoder().decode([CleanTarget].self, from: $0) }) ?? []
         map = (try? Data(contentsOf: mapURL)).flatMap { data in
@@ -251,6 +255,16 @@ final class Mimo: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.check() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.check() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.reportInstallIfNeeded() }
+        if let v = d.string(forKey: "justUpdatedTo"), v == appVersion {
+            d.removeObject(forKey: "justUpdatedTo")
+            add("arrow.down.circle.fill", "Updated myself to Mimo \(v)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.notify("Woof! I just updated myself to Mimo \(v) 🐶") }
+        }
+        if let env = ProcessInfo.processInfo.environment["MIMO_TEST_UPDATE_DMG"] {
+            // test hook: install a local DMG through the same path a real update takes
+            log("Update test: will install \(env)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.installUpdate(dmg: URL(fileURLWithPath: env), version: "test") }
+        }
         if d.bool(forKey: "remoteOn") { DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.startRemoteLoop() } }
     }
 
@@ -306,6 +320,124 @@ final class Mimo: ObservableObject {
             guard let code = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) else { return }
             DispatchQueue.main.async { self.d.set(Date(), forKey: "lastCheckIn") }
         }.resume()
+    }
+
+    // MARK: over-the-air updates
+    // Every 6 hours Mimo asks GitHub for the latest release. If it's newer, he downloads Mimo.dmg,
+    // checks its SHA-256 against the digest GitHub publishes, swaps his app bundle for the new one
+    // (only when he isn't cleaning or scanning) and starts again.
+
+    var appVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
+    private var lastUpdateCheck = Date.distantPast
+    private var updating = false
+
+    static func isNewer(_ a: String, than b: String) -> Bool {
+        let pa = a.split(separator: ".").map { Int($0) ?? 0 }, pb = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(pa.count, pb.count) {
+            let x = i < pa.count ? pa[i] : 0, y = i < pb.count ? pb[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+
+    func checkForUpdate(manual: Bool = false) {
+        guard !updating else { return }
+        guard manual || (autoUpdate && Date().timeIntervalSince(lastUpdateCheck) > 6 * 3600) else { return }
+        lastUpdateCheck = Date()
+        if manual { updateStatus = "Checking for updates…" }
+        var req = URLRequest(url: URL(string: "https://api.github.com/repos/Joe-EtubiGreatattai/mimo/releases/latest")!, timeoutInterval: 30)
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.setValue("Mimo/\(appVersion)", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            guard let data, (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tag = j["tag_name"] as? String,
+                  let assets = j["assets"] as? [[String: Any]],
+                  let dmg = assets.first(where: { ($0["name"] as? String) == "Mimo.dmg" }),
+                  let link = dmg["browser_download_url"] as? String, let url = URL(string: link),
+                  url.host == "github.com",
+                  let digest = dmg["digest"] as? String, digest.hasPrefix("sha256:") else {
+                DispatchQueue.main.async { if manual { self.updateStatus = "Couldn't reach GitHub. I'll try again later." } }
+                return
+            }
+            let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            DispatchQueue.main.async {
+                guard Mimo.isNewer(latest, than: self.appVersion) else {
+                    if manual { self.updateStatus = "You're on the latest version (\(self.appVersion))." }
+                    return
+                }
+                self.downloadUpdate(version: latest, url: url, sha256: String(digest.dropFirst(7)).lowercased())
+            }
+        }.resume()
+    }
+
+    private func updateFailed(_ why: String) {
+        DispatchQueue.main.async {
+            self.updating = false
+            self.updateStatus = "Update didn't work (\(why)). I'll try again later."
+            self.log("Update failed: \(why)")
+        }
+    }
+
+    private func downloadUpdate(version: String, url: URL, sha256: String) {
+        updating = true
+        updateStatus = "Downloading Mimo \(version)…"
+        log("Update: downloading \(version)")
+        URLSession.shared.downloadTask(with: url) { tmp, resp, _ in
+            guard let tmp, (resp as? HTTPURLResponse)?.statusCode == 200 else { self.updateFailed("download failed"); return }
+            let dmg = FileManager.default.temporaryDirectory.appendingPathComponent("Mimo-\(version).dmg")
+            try? FileManager.default.removeItem(at: dmg)
+            do { try FileManager.default.moveItem(at: tmp, to: dmg) } catch { self.updateFailed("couldn't save it"); return }
+            guard let data = try? Data(contentsOf: dmg),
+                  SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == sha256 else {
+                try? FileManager.default.removeItem(at: dmg)
+                self.updateFailed("the file didn't match GitHub's fingerprint")
+                return
+            }
+            DispatchQueue.main.async { self.installUpdate(dmg: dmg, version: version) }
+        }.resume()
+    }
+
+    func installUpdate(dmg: URL, version: String) {
+        // scanning and mapping only read files, so it's safe to restart then; never mid-clean
+        if isCleaning {
+            updateStatus = "Mimo \(version) is ready. I'll install it when I'm done here."
+            log("Update: waiting (cleaning \(isCleaning), scanning \(isScanning), mapping \(isMapping))")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { self.installUpdate(dmg: dmg, version: version) }
+            return
+        }
+        let app = Bundle.main.bundlePath
+        let parent = (app as NSString).deletingLastPathComponent
+        guard app.hasSuffix(".app"), FileManager.default.isWritableFile(atPath: parent) else {
+            updateFailed("no permission to replace the app")
+            notify("Mimo \(version) is out 🐶 Download it from the Mimo website to update.")
+            return
+        }
+        updateStatus = "Installing Mimo \(version)…"
+        log("Update: installing \(version)")
+        if version != "test" { d.set(version, forKey: "justUpdatedTo") }
+        let q = { (p: String) in "'" + p.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let script = """
+        APP=\(q(app)); DMG=\(q(dmg.path)); PID=\(ProcessInfo.processInfo.processIdentifier)
+        trap 'open "$APP"' EXIT
+        while kill -0 $PID 2>/dev/null; do sleep 0.5; done
+        MNT=$(mktemp -d /tmp/mimo-update.XXXXXX)
+        hdiutil attach -nobrowse -noverify -noautoopen -readonly -mountpoint "$MNT" "$DMG" >/dev/null || exit 1
+        if [ -x "$MNT/Mimo.app/Contents/MacOS/Mimo" ]; then
+          rm -rf "$APP.old" && mv "$APP" "$APP.old" || { hdiutil detach "$MNT" -quiet; exit 1; }
+          if ditto "$MNT/Mimo.app" "$APP"; then rm -rf "$APP.old"; else rm -rf "$APP"; mv "$APP.old" "$APP"; fi
+          xattr -dr com.apple.quarantine "$APP" 2>/dev/null
+        fi
+        hdiutil detach "$MNT" -quiet || hdiutil detach "$MNT" -force -quiet
+        rmdir "$MNT" 2>/dev/null; rm -f "$DMG"
+        """
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("mimo-update.sh")
+        do { try script.write(to: file, atomically: true, encoding: .utf8) } catch { updateFailed("couldn't write the installer"); return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = ["-c", "nohup /bin/bash \(q(file.path)) >>\(q(logURL.path)) 2>&1 &"]
+        do { try p.run(); p.waitUntilExit() } catch { updateFailed("couldn't start the installer"); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NSApp.terminate(nil) }
     }
 
     func reportInstallIfNeeded() {
@@ -421,6 +553,7 @@ final class Mimo: ObservableObject {
         if manual { add("magnifyingglass", "Checked: \(freeGB) GB free") }
         reportInstallIfNeeded()
         checkInIfDue()
+        checkForUpdate()
         if let m = map, Date().timeIntervalSince(m.date) > 7 * 86_400, !isMapping, !isCleaning { runMap(firstTime: false) }
         if freeGB < cleanBelowGB && !isCleaning && !isScanning {
             if askFirst {
@@ -1411,6 +1544,22 @@ struct SettingsTab: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }.toggleStyle(.checkbox)
+                }
+
+                section("Updates") {
+                    Toggle(isOn: $mimo.autoUpdate) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Update automatically")
+                            Text("I check for new versions every few hours and install them when I'm not busy.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.toggleStyle(.checkbox)
+                    HStack {
+                        Text(mimo.updateStatus.isEmpty ? "You're running Mimo \(mimo.appVersion)." : mimo.updateStatus)
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Check now") { mimo.checkForUpdate(manual: true) }.controlSize(.small)
+                    }
                 }
 
                 section("Notifications") {

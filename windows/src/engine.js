@@ -22,7 +22,7 @@ const yieldNow = () => new Promise((r) => setImmediate(r));
 const DEFAULTS = {
   cleanBelowGB: 15, askFirst: true, reportMinutes: 30, countInstall: true, startAtLogin: true,
   enabled: {}, days: {}, customPlaces: [], installId: null, deviceSecret: null,
-  installReported: false, remoteOn: false, pairedPhones: 0,
+  installReported: false, remoteOn: false, pairedPhones: 0, autoUpdate: true,
 };
 
 class Engine extends EventEmitter {
@@ -556,7 +556,8 @@ class Engine extends EventEmitter {
         path: p.custom ? p.paths[0] : null, count: p.mode === 'nodeModules' && this.map ? this.map.nodeModules.length : null })),
       map: this.map ? { date: this.map.date, folders: this.map.folders, totalBytes: this.map.totalBytes, tree: this.map.tree } : null,
       activity: this.activity.slice(0, 40),
-      settings: { cleanBelowGB: this.s.cleanBelowGB, askFirst: this.s.askFirst, reportMinutes: this.s.reportMinutes, countInstall: this.s.countInstall, startAtLogin: this.s.startAtLogin },
+      settings: { cleanBelowGB: this.s.cleanBelowGB, askFirst: this.s.askFirst, reportMinutes: this.s.reportMinutes, countInstall: this.s.countInstall, startAtLogin: this.s.startAtLogin, autoUpdate: this.s.autoUpdate !== false },
+      updateStatus: this.updateStatus || '',
       nextReport: this.lastReport + this.s.reportMinutes * 60_000,
       phone: { code: this.pairCode, expires: this.pairExpires, paired: this.s.pairedPhones, error: this.remoteError, url: 'https://mimo.techtree.lifestyle/app/' + (this.pairCode ? '#pair=' + this.pairCode : '') },
       home: this.home, version: this.appVersion,

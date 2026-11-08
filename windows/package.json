@@ -1,7 +1,7 @@
 {
   "name": "mimo",
   "productName": "Mimo",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "A friendly tray dog that watches your free space and cleans up before you run out.",
   "author": "Great Attai",
   "homepage": "https://joe-etubigreatattai.github.io/mimo/",
@@ -14,6 +14,7 @@
     "dist": "electron-builder --win nsis --publish never"
   },
   "dependencies": {
+    "electron-updater": "6.6.2",
     "qrcode": "1.5.4"
   },
   "devDependencies": {
@@ -55,6 +56,14 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Mimo",
       "runAfterFinish": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Joe-EtubiGreatattai",
+        "repo": "mimo",
+        "releaseType": "release"
+      }
+    ]
   }
 }

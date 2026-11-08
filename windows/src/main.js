@@ -57,6 +57,36 @@ function updateTray() {
   ]));
 }
 
+// ---------- over-the-air updates ----------
+// Checks GitHub Releases every 6 hours, downloads new versions in the background
+// and installs them silently when Mimo isn't busy, then starts him again.
+let autoUpdater = null;
+function setStatus(t) { if (engine) { engine.updateStatus = t; engine.changed(); } }
+function setupUpdates() {
+  if (!app.isPackaged) return;
+  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.logger = null;
+  autoUpdater.on('checking-for-update', () => setStatus('Checking for updates…'));
+  autoUpdater.on('update-available', (i) => setStatus(`Downloading Mimo ${i.version}…`));
+  autoUpdater.on('update-not-available', () => setStatus(`You're on the latest version (${app.getVersion()}).`));
+  autoUpdater.on('error', () => setStatus("Couldn't check for updates. I'll try again later."));
+  autoUpdater.on('update-downloaded', (i) => {
+    setStatus(`Mimo ${i.version} is ready. Installing…`);
+    engine.s.justUpdatedTo = i.version; engine.save();
+    const install = () => {
+      if (engine.isCleaning || engine.isScanning || engine.isMapping) return setTimeout(install, 60_000);
+      quitting = true;
+      autoUpdater.quitAndInstall(true, true); // silent install, then start Mimo again
+    };
+    setTimeout(install, 5000);
+  });
+  const check = () => { if (engine.s.autoUpdate !== false) autoUpdater.checkForUpdates().catch(() => {}); };
+  setTimeout(check, 60_000);
+  setInterval(check, 6 * 3600_000);
+}
+
 function notify({ title, body, category }) {
   if (!Notification.isSupported()) return;
   const n = new Notification({ title, body, icon: path.join(ICONS, 'icon.png'), silent: false });
@@ -97,12 +127,16 @@ function registerIpc() {
       case 'removePlace': engine.removeCustomPlace(args.id); return true;
       case 'remap': engine.runMap(false); return true;
       case 'setting': {
-        const allowed = ['cleanBelowGB', 'askFirst', 'reportMinutes', 'countInstall', 'startAtLogin'];
+        const allowed = ['cleanBelowGB', 'askFirst', 'reportMinutes', 'countInstall', 'startAtLogin', 'autoUpdate'];
         if (!allowed.includes(args.key)) return false;
         engine.set(args.key, args.value);
         if (args.key === 'startAtLogin') app.setLoginItemSettings({ openAtLogin: !!args.value, args: ['--hidden'] });
         return true;
       }
+      case 'checkUpdate':
+        if (!autoUpdater) { setStatus('Updates work in the installed app.'); return true; }
+        autoUpdater.checkForUpdates().catch(() => setStatus("Couldn't check for updates. I'll try again later."));
+        return true;
       case 'testNotification': engine.report(); return true;
       case 'pair': await engine.startPairing(); return true;
       case 'cancelPair': engine.cancelPairing(); return true;
@@ -144,6 +178,12 @@ app.whenReady().then(async () => {
   const startedHidden = process.argv.includes('--hidden');
   if (!startedHidden || !engine.map) createWindow(engine.map ? undefined : 'places');
   engine.start();
+  if (engine.s.justUpdatedTo === app.getVersion()) {
+    delete engine.s.justUpdatedTo; engine.save();
+    engine.add('download', `Updated myself to Mimo ${app.getVersion()}`);
+    notify({ title: 'Mimo 🐶', body: `Woof! I just updated myself to Mimo ${app.getVersion()}.` });
+  }
+  setupUpdates();
 });
 
 app.on('second-instance', () => createWindow());

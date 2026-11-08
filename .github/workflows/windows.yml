@@ -32,7 +32,9 @@ jobs:
           cache-dependency-path: windows/package-lock.json
 
       - name: Install
-        run: npm ci
+        shell: bash
+        # retry: Electron's download server sometimes answers 503
+        run: for i in 1 2 3; do npm ci && exit 0; echo "npm ci failed, retrying in 30s"; sleep 30; done; exit 1
 
       - name: Engine tests (fake Windows user folder)
         run: npm test
@@ -52,7 +54,8 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           ls -la dist
-          gh release upload "$TAG" dist/Mimo-Setup.exe --clobber --repo "$GITHUB_REPOSITORY"
+          # latest.yml + blockmap let installed copies of Mimo update themselves
+          gh release upload "$TAG" dist/Mimo-Setup.exe dist/Mimo-Setup.exe.blockmap dist/latest.yml --clobber --repo "$GITHUB_REPOSITORY"
 
       - uses: actions/upload-artifact@v4
         with:
