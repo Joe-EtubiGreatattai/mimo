@@ -557,7 +557,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
   async function load() {
     try {
       const d = await fetch('https://mimo.techtree.lifestyle/v1/cleared').then(r => r.ok ? r.json() : null);
-      if (!d || d.bytes < GB) return;               // show once there is at least 1 GB to celebrate
+      if (!d || !(d.bytes > 0)) return;
       sub.textContent = d.computers > 1 ? `on ${d.computers.toLocaleString()} computers so far` : 'for people using him so far';
       if (box.hidden) { box.hidden = false; animate(d.bytes); }
       else if (d.bytes > shown) { box.classList.remove('bump'); void box.offsetWidth; box.classList.add('bump'); animate(d.bytes); }
