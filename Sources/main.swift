@@ -30,9 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if mimo.map == nil {
             showWindow(tab: .places)
             mimo.runMap(firstTime: true)
-        } else {
+        } else if !mimo.quietLaunch {
             showWindow()
         }
+        // Started at login or after updating himself: stay in the menu bar and don't take focus.
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         showWindow(); return true
@@ -174,6 +175,9 @@ final class Mimo: ObservableObject {
     @Published var selected: Set<String> = []
     @Published var lastReport = Date()
     @Published var notificationsAllowed = true
+    @Published var fullDiskAccess = false
+    /// True when Mimo was started by login or by his own update rather than by the user.
+    var quietLaunch = false
 
     // mapping
     @Published var map: MapResult?
@@ -241,15 +245,23 @@ final class Mimo: ObservableObject {
             return try? dec.decode(MapResult.self, from: data)
         }
 
-        try? SMAppService.mainApp.register()
+        if SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
+        fullDiskAccess = checkFullDiskAccess()
+        quietLaunch = d.string(forKey: "justUpdatedTo") != nil
+            || ProcessInfo.processInfo.systemUptime < 300
+            || ProcessInfo.processInfo.environment["MIMO_TEST_UPDATE_DMG"] != nil
         readDisk()
         add("pawprint.fill", "Mimo started — watching every minute")
+        log("Full Disk Access: \(fullDiskAccess ? "on" : "off, skipping guarded folders quietly")\(quietLaunch ? " · quiet start" : "")")
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { ok, _ in
             DispatchQueue.main.async {
                 self.useNative = ok
                 self.refreshPermission()
-                self.notify("Woof! Mimo is on duty 🐶 You have \(self.freeGB) GB free. I'll check every minute.")
+                if !self.d.bool(forKey: "welcomed") {
+                    self.d.set(true, forKey: "welcomed")
+                    self.notify("Woof! Mimo is on duty 🐶 You have \(self.freeGB) GB free. I'll check every minute.")
+                }
             }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.check() }
@@ -479,7 +491,7 @@ final class Mimo: ObservableObject {
     /// Every place Mimo could clean on this Mac: recognised places that exist, project node_modules, and your own places.
     var allPlaces: [CleanTarget] {
         let fm = FileManager.default
-        var list = knownPlaces.filter { fm.fileExists(atPath: $0.url(home).path) }
+        var list = knownPlaces.filter { (!fullDiskAccess && isGuarded($0.url(home).path)) || fm.fileExists(atPath: $0.url(home).path) }  // no peeking into guarded folders without access
         if let m = map, !m.nodeModules.isEmpty { list.append(nodeModulesPlace) }
         list += customPlaces
         return list.map { t in var t = t; if let dd = daysOverride[t.id] { t.days = dd }; return t }
@@ -548,8 +560,30 @@ final class Mimo: ObservableObject {
 
     // MARK: watching
 
+    // MARK: staying out of the way
+    // Reading some folders makes macOS show a permission pop-up (Desktop, Documents, Downloads,
+    // iCloud Drive, other apps' data, the Photos library). Mimo only goes there once he has
+    // Full Disk Access, which covers all of them silently. Without it he skips them quietly.
+
+    /// Checks Full Disk Access without ever showing a prompt: the TCC database opens only with it.
+    func checkFullDiskAccess() -> Bool {
+        let fd = open(home.appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db").path, O_RDONLY)
+        if fd >= 0 { close(fd); return true }
+        return false
+    }
+    var guardedRoots: [String] {
+        ["Desktop", "Documents", "Downloads", "Library/Mobile Documents", "Library/Containers",
+         "Library/Group Containers", "Library/CloudStorage"].map { home.appendingPathComponent($0).path }
+    }
+    func isGuarded(_ path: String) -> Bool {
+        path.contains(".photoslibrary") || guardedRoots.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+    /// Places Mimo can read right now without macOS asking the user anything.
+    func readableQuietly(_ t: CleanTarget) -> Bool { fullDiskAccess || !isGuarded(t.url(home).path) }
+
     func check(manual: Bool = false) {
         readDisk(); lastCheck = Date()
+        fullDiskAccess = checkFullDiskAccess()
         if manual { add("magnifyingglass", "Checked: \(freeGB) GB free") }
         reportInstallIfNeeded()
         checkInIfDue()
@@ -606,6 +640,8 @@ final class Mimo: ObservableObject {
         if firstTime { notify("Hi, I'm Mimo 🐶 I'm sniffing through your folders to learn where space goes. This takes a few minutes.") }
         let home = self.home
         let places = knownPlaces
+        let fda = checkFullDiskAccess()
+        let guarded = Set(guardedRoots)
         DispatchQueue.global(qos: .utility).async {
             let fm = FileManager.default
             let rootCount = home.pathComponents.count
@@ -632,6 +668,7 @@ final class Mimo: ObservableObject {
             for case let url as URL in e {
                 guard let r = try? url.resourceValues(forKeys: Set(keys)), r.isSymbolicLink != true else { continue }
                 if r.isDirectory == true {
+                    if !fda && (guarded.contains(url.path) || url.pathExtension == "photoslibrary") { e.skipDescendants(); continue }
                     folders += 1
                     if url.lastPathComponent == "node_modules" {
                         let s = self.size(of: url)
@@ -740,7 +777,8 @@ final class Mimo: ObservableObject {
     func scan(then: (() -> Void)? = nil) {
         guard !isScanning else { return }
         isScanning = true
-        let targets = enabledTargets
+        fullDiskAccess = checkFullDiskAccess()
+        let targets = enabledTargets.filter { readableQuietly($0) }
         let nm = map?.nodeModules ?? []
         DispatchQueue.global(qos: .utility).async {
             var out: [Finding] = []
@@ -788,7 +826,9 @@ final class Mimo: ObservableObject {
                 return FoundItem(url: f, bytes: size(of: f))
             }
         case .nodeModules:
+            let fda = fullDiskAccess
             return nodeModules.compactMap { n in
+                if !fda && isGuarded(n.path) { return nil }
                 let u = URL(fileURLWithPath: n.path)
                 guard fm.fileExists(atPath: n.path) else { return nil }
                 let mod = (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? n.modified
@@ -1377,7 +1417,9 @@ struct PlacesTab: View {
             }
             HStack(spacing: 4) {
                 Image(systemName: "lock.shield").foregroundStyle(.secondary)
-                Text("For a full map, give Mimo Full Disk Access.").font(.caption2).foregroundStyle(.secondary)
+                Text(mimo.fullDiskAccess ? "Full Disk Access is on, so I can see every folder."
+                     : "I skip Desktop, Documents, Downloads and other apps' data so macOS never interrupts you. Give me Full Disk Access to include them.")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button("Open settings") { mimo.openFullDiskAccessSettings() }.buttonStyle(.link).font(.caption2)
             }
         }
@@ -1392,6 +1434,9 @@ struct PlacesTab: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Label(t.name, systemImage: t.icon)
                         Text(t.detail).font(.caption).foregroundStyle(t.permanent && (t.custom || t.id == "bin") ? Color.orange : Color.secondary)
+                        if !mimo.readableQuietly(t) {
+                            Text("Skipped until Mimo has Full Disk Access").font(.caption2).foregroundStyle(.orange)
+                        }
                         if t.mode == .nodeModules, let n = mimo.map?.nodeModules.count {
                             Text("Found in \(n) project\(n == 1 ? "" : "s")").font(.caption2).foregroundStyle(.tertiary)
                         }
