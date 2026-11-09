@@ -59,7 +59,7 @@ The Windows app is in [`windows/`](windows/) and is built and tested on a Window
 
 ## Build from source
 
-Mimo is a single SwiftUI file. You need the Xcode command line tools (`xcode-select --install`).
+Mimo is a single SwiftUI file. You need the Xcode command line tools (`xcode-select --install`). Building it yourself is for personal evaluation only; the code isn't licensed for reuse or redistribution (see [LICENSE](LICENSE)).
 
 ```bash
 git clone https://github.com/Joe-EtubiGreatattai/mimo.git
@@ -70,6 +70,10 @@ cd mimo
 ## Landing page
 
 The website lives in [`docs/index.html`](docs/index.html). Turn on GitHub Pages (Settings › Pages › Deploy from branch › `main` / `docs`) to host it for free.
+
+## Legal
+
+By downloading or using Mimo you agree to the [Terms of Use](https://joe-etubigreatattai.github.io/mimo/terms.html) and [Privacy Policy](https://joe-etubigreatattai.github.io/mimo/privacy.html). Mimo deletes files you allow him to clean, so keep backups of anything important. Copyright © 2026 Great Attai, all rights reserved: see [LICENSE](LICENSE) and [Licenses](https://joe-etubigreatattai.github.io/mimo/licenses.html).
 
 ---
 
