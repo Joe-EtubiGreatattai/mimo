@@ -99,6 +99,7 @@ table.data th:first-child,table.data td:first-child{text-align:left}
 .tablewrap{max-height:260px;overflow:auto}
 
 /* space cleared */
+.tag{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--good);color:#fff;margin-left:6px;vertical-align:1px}
 .levels{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:22px}
 .levels .two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;min-width:0}
 .levels .two h3{font-size:14px;margin:0 0 2px}
@@ -211,7 +212,7 @@ footer a{color:inherit}
       </div>
       <div class="kpis">
         <div class="kpi"><div class="label">New installs</div><div class="value num" id="kRange">–</div><div class="sub" id="kRangeSub">–</div></div>
-        <div class="kpi"><div class="label">Download clicks</div><div class="value num" id="kDl">–</div><div class="sub" id="kDlSub">–</div></div>
+        <div class="kpi"><div class="label">Downloads</div><div class="value num" id="kDl">–</div><div class="sub" id="kDlSub">–</div></div>
         <div class="kpi"><div class="label">Phones paired</div><div class="value num" id="kPh">–</div><div class="sub" id="kPhSub">–</div></div>
       </div>
     </div>
@@ -241,6 +242,24 @@ footer a{color:inherit}
         </div>
       </header>
       <div class="chart" id="clChart"></div>
+    </div>
+  </section>
+
+  <section class="card levels" style="animation-delay:.04s">
+    <div>
+      <h2><span class="eyebrow-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></span>Downloads</h2>
+      <div class="cl-sub">Every time Mimo.dmg or Mimo-Setup.exe was downloaded from GitHub, all versions</div>
+      <div class="cl-stats">
+        <div class="cl-stat"><b class="num" id="dlTotal">–</b><span>downloads in total</span></div>
+        <div class="cl-stat"><b class="num" id="dlRate">–</b><span>became installs that checked in</span></div>
+        <div class="cl-stat"><b class="num" id="dlMac">–</b><span>for Mac</span></div>
+        <div class="cl-stat"><b class="num" id="dlWin">–</b><span>for Windows</span></div>
+      </div>
+      <div class="cl-sub" style="margin-top:14px"><span id="dlClicks">–</span> came from the website's buttons; the rest from shared links and GitHub.</div>
+    </div>
+    <div style="min-width:0">
+      <h3 style="font-size:14px;margin:0 0 2px">Downloads by version</h3><div class="hint" style="margin-bottom:12px">Newest first, Mac and Windows</div>
+      <div class="hbars" id="dlVersions"></div>
     </div>
   </section>
 
@@ -295,7 +314,7 @@ footer a{color:inherit}
 
   <section class="card span2" style="animation-delay:.15s">
     <header>
-      <div><h2>Download clicks per day</h2><div class="hint" id="dlHint">Clicks on the website's download buttons</div></div>
+      <div><h2>Website button clicks per day</h2><div class="hint" id="dlHint">Clicks on the website's download buttons</div></div>
       <div class="right">
         <div class="legend"><span><i style="background:var(--mac)"></i>Mac</span><span><i style="background:var(--win)"></i>Windows</span></div>
         <button class="tbtn" type="button" data-table="dlChart">Table</button>
@@ -335,7 +354,7 @@ footer a{color:inherit}
   </section>
 
   <section class="card" style="animation-delay:.4s">
-    <header><div><h2>Which button people click</h2><div class="hint">All download clicks</div></div></header>
+    <header><div><h2>Which button people click</h2><div class="hint">Website download buttons</div></div></header>
     <div class="hbars" id="sources"></div>
   </section>
 
@@ -492,7 +511,13 @@ footer a{color:inherit}
     countTo($('total'), I.total, 'total');
     const ch = change(I.inRange, I.prevRange); $('delta').textContent = ch.text; $('delta').className = 'delta ' + ch.cls;
     countTo($('kRange'), I.inRange, 'range'); $('kRangeSub').textContent = `${nf(I.today)} in the last 24 hours`;
-    countTo($('kDl'), L.inRange, 'dl'); $('kDlSub').textContent = D.github && D.github.total ? `${nf(D.github.total)} downloads in total` : `${nf(L.total)} clicks all time`;
+    const G = D.github || { total: 0, mac: 0, windows: 0, byVersion: [] };
+    countTo($('kDl'), G.total, 'dl'); $('kDlSub').textContent = `${nf(G.mac)} Mac · ${nf(G.windows)} Windows, all versions`;
+    $('dlTotal').textContent = nf(G.total); $('dlMac').textContent = nf(G.mac); $('dlWin').textContent = nf(G.windows);
+    $('dlRate').textContent = G.total ? Math.round((I.total / G.total) * 100) + '%' : '–';
+    $('dlClicks').textContent = nf(L.total);
+    const vMax = Math.max(1, ...G.byVersion.map((v) => v.n));
+    hbars($('dlVersions'), G.byVersion.map((v, i) => ({ label: `v${esc(v.version)}${i === 0 ? ' <span class="tag">latest</span>' : ''}`, n: v.n, segs: segsOf(v) })), vMax, 'No releases yet');
     countTo($('kPh'), P.paired, 'ph'); $('kPhSub').textContent = `${nf(P.computers)} computer${P.computers === 1 ? '' : 's'} · ${nf(P.online)} online now`;
     $('instHint').textContent = `New computers running Mimo, last ${days} days`;
     $('dlHint').textContent = `Clicks on the website’s download buttons, last ${days} days`;
