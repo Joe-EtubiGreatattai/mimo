@@ -512,7 +512,7 @@ footer a{color:inherit}
     const ch = change(I.inRange, I.prevRange); $('delta').textContent = ch.text; $('delta').className = 'delta ' + ch.cls;
     countTo($('kRange'), I.inRange, 'range'); $('kRangeSub').textContent = `${nf(I.today)} in the last 24 hours`;
     const G = D.github || { total: 0, mac: 0, windows: 0, byVersion: [] };
-    countTo($('kDl'), G.total, 'dl'); $('kDlSub').textContent = `${nf(G.mac)} Mac · ${nf(G.windows)} Windows, all versions`;
+    countTo($('kDl'), G.total, 'dl'); $('kDlSub').textContent = `${nf(G.mac)} Mac · ${nf(G.windows)} Windows`;
     $('dlTotal').textContent = nf(G.total); $('dlMac').textContent = nf(G.mac); $('dlWin').textContent = nf(G.windows);
     $('dlRate').textContent = G.total ? Math.round((I.total / G.total) * 100) + '%' : '–';
     $('dlClicks').textContent = nf(L.total);
