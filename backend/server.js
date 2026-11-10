@@ -89,8 +89,17 @@ app.post('/v1/cleanups', rateLimit, async (req, res) => {
       platform: platform === 'windows' ? 'windows' : 'macos', appVersion: clean(appVersion), arch: clean(arch, 12),
       trigger: ['auto', 'review', 'phone', 'manual'].includes(trigger) ? trigger : 'other',
     });
-    // a clean also tells us which version that computer runs now
-    if (clean(appVersion)) await installs.updateOne({ installId: installId.toLowerCase() }, { $set: { appVersion: clean(appVersion), lastSeen: new Date() } }).catch(() => {});
+    // A clean also tells us which version that computer runs now. If its first-launch report never
+    // arrived (offline, reinstalled, blocked), this creates the install record so every count agrees.
+    const now = new Date();
+    await installs.updateOne(
+      { installId: installId.toLowerCase() },
+      {
+        $setOnInsert: { installId: installId.toLowerCase(), firstSeen: now, platform: platform === 'windows' ? 'windows' : 'macos', arch: clean(arch, 12) },
+        $set: { lastSeen: now, ...(clean(appVersion) ? { appVersion: clean(appVersion) } : {}) },
+      },
+      { upsert: true }
+    ).catch(() => {});
     res.status(201).json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Could not record cleanup' }); }
 });
@@ -293,8 +302,8 @@ app.get('/v1/dashboard', async (req, res) => {
       },
       series,
       versions: byVersion.map((x) => ({ version: x._id.v || 'unknown', platform: x._id.p, n: x.n })),
-      chips: byArch.map((x) => ({ arch: x._id.a || 'unknown', platform: x._id.p, n: x.n })),
-      systems: byOS.map((x) => ({ os: x._id.o || 'unknown', platform: x._id.p, n: x.n })),
+      chips: byArch.map((x) => ({ arch: x._id.a || '', platform: x._id.p, n: x.n })),
+      systems: byOS.map((x) => ({ os: x._id.o || '', platform: x._id.p, n: x.n })),
       recent: recent.map((r) => ({ at: r.firstSeen, platform: r.platform || 'macos', version: r.appVersion || '', os: r.osVersion || '', arch: r.arch || '' })),
     });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Could not load dashboard' }); }
