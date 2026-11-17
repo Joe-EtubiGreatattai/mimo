@@ -591,14 +591,27 @@ final class Mimo: ObservableObject {
         if let m = map, Date().timeIntervalSince(m.date) > 7 * 86_400, !isMapping, !isCleaning { runMap(firstTime: false) }
         if freeGB < cleanBelowGB && !isCleaning && !isScanning {
             if askFirst {
-                if !pendingReview { prepareReview(reason: .lowSpace) }
-                else if Date().timeIntervalSince(lastReviewNudge) >= reportEvery { nudgeReview() }
-            } else {
-                add("exclamationmark.triangle.fill", "Low on space (\(freeGB) GB) — started cleaning")
-                notify("Only \(freeGB) GB left — fetching the broom 🧹")
-                scan { self.clean(ids: Set(self.findings.map { $0.id }), trigger: "auto") }
+                if pendingReview {
+                    if Date().timeIntervalSince(lastReviewNudge) >= reportEvery { nudgeReview() }
+                    return
+                }
+                if lowSpaceTryAllowed { markLowSpaceTry(); prepareReview(reason: .lowSpace); return }
+            } else if lowSpaceTryAllowed {
+                markLowSpaceTry()
+                scan {
+                    // Only clean when there's something worth clearing; otherwise say so once and wait.
+                    guard self.foundBytes >= 200_000_000 else {
+                        self.add("checkmark.circle", "Below your \(self.cleanBelowGB) GB level, but nothing big left to clear")
+                        self.notify("You're at \(self.freeGB) GB, below your \(self.cleanBelowGB) GB level, and I've already cleared what I safely can 🐾 Lower your level or add places in Settings. I'll check again in a few hours.")
+                        return
+                    }
+                    self.add("exclamationmark.triangle.fill", "Low on space (\(self.freeGB) GB) — started cleaning")
+                    self.notify("Only \(self.freeGB) GB left — fetching the broom 🧹")
+                    self.clean(ids: Set(self.findings.map { $0.id }), trigger: "auto")
+                }
+                return
             }
-            return
+            // Already tried recently: wait instead of cleaning every minute; keep normal check-ins going.
         }
         if freeGB < warnGB && !warned {
             warned = true
@@ -607,6 +620,14 @@ final class Mimo: ObservableObject {
         } else if freeGB >= warnGB { warned = false }
         if Date().timeIntervalSince(lastReport) >= reportEvery { report() }
     }
+
+    // After a low-space clean or review, wait 6 hours before trying again,
+    // unless free space drops another 5 GB. Stops Mimo cleaning every minute
+    // when he can't get you above your level.
+    private var lowSpaceRetryAt = Date.distantPast
+    private var lowSpaceFreeAtTry = Int.max
+    var lowSpaceTryAllowed: Bool { Date() >= lowSpaceRetryAt || freeGB <= lowSpaceFreeAtTry - 5 }
+    func markLowSpaceTry() { lowSpaceRetryAt = Date().addingTimeInterval(6 * 3600); lowSpaceFreeAtTry = freeGB }
 
     func report() {
         readDisk(); lastReport = Date()

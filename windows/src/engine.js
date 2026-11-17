@@ -108,6 +108,11 @@ class Engine extends EventEmitter {
     return { text: 'All good', emoji: '😊', tone: 'green' };
   }
 
+  // After a low-space clean or review, wait 6 hours before trying again, unless free space
+  // drops another 5 GB. Stops Mimo cleaning every minute when he can't get above your level.
+  lowSpaceTryAllowed() { return Date.now() >= (this.lowSpaceRetryAt || 0) || this.free <= (this.lowSpaceFreeAtTry ?? Infinity) - 5; }
+  markLowSpaceTry() { this.lowSpaceRetryAt = Date.now() + 6 * 3600_000; this.lowSpaceFreeAtTry = this.free; }
+
   // ---------- places ----------
   placesAll() {
     const list = knownPlaces().filter((p) => p.mode === 'recycleBin' || this.resolvePaths(p).some((x) => fs.existsSync(x)));
@@ -238,15 +243,30 @@ class Engine extends EventEmitter {
     if (this.map && Date.now() - this.map.date > 7 * 86_400_000 && !this.isMapping && !this.isCleaning) this.runMap(false);
     if (this.free < this.s.cleanBelowGB && !this.isCleaning && !this.isScanning) {
       if (this.s.askFirst) {
-        if (!this.pendingReview) this.prepareReview('low');
-        else if (Date.now() - this.lastNudge >= this.s.reportMinutes * 60_000) this.nudge();
-      } else {
-        this.add('alert', `Low on space (${this.free} GB) — started cleaning`);
-        this.notify(`Only ${this.free} GB left — fetching the broom 🧹`);
-        this.scan().then(() => this.clean(this.findings.map((f) => f.id), 'auto'));
+        if (this.pendingReview) {
+          if (Date.now() - this.lastNudge >= this.s.reportMinutes * 60_000) this.nudge();
+          this.changed();
+          return;
+        }
+        if (this.lowSpaceTryAllowed()) { this.markLowSpaceTry(); this.prepareReview('low'); this.changed(); return; }
+      } else if (this.lowSpaceTryAllowed()) {
+        this.markLowSpaceTry();
+        this.scan().then(() => {
+          const found = this.findings.reduce((a, f) => a + f.bytes, 0);
+          // Only clean when there's something worth clearing; otherwise say so once and wait.
+          if (found < 200_000_000) {
+            this.add('check', `Below your ${this.s.cleanBelowGB} GB level, but nothing big left to clear`);
+            this.notify(`You're at ${this.free} GB, below your ${this.s.cleanBelowGB} GB level, and I've already cleared what I safely can 🐾 Lower your level or add places in Settings. I'll check again in a few hours.`);
+            return;
+          }
+          this.add('alert', `Low on space (${this.free} GB) — started cleaning`);
+          this.notify(`Only ${this.free} GB left — fetching the broom 🧹`);
+          this.clean(this.findings.map((f) => f.id), 'auto');
+        });
+        this.changed();
+        return;
       }
-      this.changed();
-      return;
+      // Already tried recently: wait instead of cleaning every minute; keep normal check-ins going.
     }
     if (this.free < this.warnGB && !this.warned) {
       this.warned = true;

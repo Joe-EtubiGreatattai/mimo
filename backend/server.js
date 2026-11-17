@@ -253,6 +253,14 @@ app.get('/v1/dashboard', async (req, res) => {
       cleanups.aggregate([{ $group: { _id: '$platform', bytes: { $sum: '$bytes' } } }]).toArray(),
     ]);
     const G = await githubDownloads();
+    // Cleans from one computer less than 30 minutes apart count as one clean, so a retry loop
+    // (fixed in Mimo 1.5.2) doesn't inflate the number of cleans.
+    const clDocs = await cleanups.find({}, { projection: { _id: 0, installId: 1, at: 1, trigger: 1 } }).sort({ installId: 1, at: 1 }).toArray();
+    const sessions = []; let prevCl = null;
+    for (const c of clDocs) {
+      if (!prevCl || prevCl.installId !== c.installId || c.at - prevCl.at > 30 * 60_000) sessions.push({ at: c.at, trigger: c.trigger });
+      prevCl = c;
+    }
     // Storage levels from computers that checked in during the last 30 days
     const lv = await installs.find({ checkedInAt: { $gte: new Date(now - 30 * DAY) } }, { projection: { _id: 0, platform: 1, cleanBelowGB: 1, askFirst: 1, freeGB: 1, totalGB: 1 } }).toArray();
     const median = (xs) => { if (!xs.length) return 0; const a = [...xs].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2); };
@@ -294,11 +302,11 @@ app.get('/v1/dashboard', async (req, res) => {
       phones: { paired: (phoneAgg[0] || {}).phones || 0, computers: (phoneAgg[0] || {}).macs || 0, online },
       windowsWaitlist: waiting,
       cleared: {
-        total: (clAll[0] || {}).bytes || 0, cleans: (clAll[0] || {}).n || 0, computers: (clAll[0] || {}).computers || 0,
-        inRange: (clRange[0] || {}).bytes || 0, cleansInRange: (clRange[0] || {}).n || 0, prevRange: (clPrev[0] || {}).bytes || 0,
+        total: (clAll[0] || {}).bytes || 0, cleans: sessions.length, computers: (clAll[0] || {}).computers || 0,
+        inRange: (clRange[0] || {}).bytes || 0, cleansInRange: sessions.filter((x) => x.at >= start).length, prevRange: (clPrev[0] || {}).bytes || 0,
         mac: (clPlatform.find((x) => x._id === 'macos') || {}).bytes || 0, windows: (clPlatform.find((x) => x._id === 'windows') || {}).bytes || 0,
         categories: clCats.map((c) => ({ id: c._id, name: c.name, bytes: c.bytes, mac: c.mac, windows: c.bytes - c.mac, cleans: c.n })),
-        triggers: Object.fromEntries(clTriggers.map((t) => [t._id, { cleans: t.n, bytes: t.bytes }])),
+        triggers: Object.fromEntries(clTriggers.map((t) => [t._id, { cleans: sessions.filter((x) => x.trigger === t._id).length || t.n, bytes: t.bytes }])),
       },
       series,
       versions: byVersion.map((x) => ({ version: x._id.v || 'unknown', platform: x._id.p, n: x.n })),
