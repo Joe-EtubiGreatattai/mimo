@@ -26,7 +26,7 @@ let installs, waitlist, downloads, cleanups;
 
 // The landing page (GitHub Pages) calls the Windows waitlist from the browser.
 const ALLOWED_ORIGINS = ['https://joe-etubigreatattai.github.io'];
-app.use(['/v1/windows', '/v1/downloads', '/v1/cleared'], (req, res, next) => {
+app.use(['/v1/windows', '/v1/downloads', '/v1/cleared', '/v1/public-stats'], (req, res, next) => {
   const o = req.headers.origin;
   if (o && (ALLOWED_ORIGINS.includes(o) || /^https?:\/\/localhost(:\d+)?$/.test(o))) {
     res.set('Access-Control-Allow-Origin', o);
@@ -315,6 +315,52 @@ app.get('/v1/dashboard', async (req, res) => {
       recent: recent.map((r) => ({ at: r.firstSeen, platform: r.platform || 'macos', version: r.appVersion || '', os: r.osVersion || '', arch: r.arch || '' })),
     });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Could not load dashboard' }); }
+});
+
+// Public numbers for the website's "Mimo by the numbers" section. Totals only: no install IDs, versions or systems.
+let publicCache = { at: 0, body: null };
+app.get('/v1/public-stats', async (req, res) => {
+  try {
+    if (!publicCache.body || Date.now() - publicCache.at > 60_000) {
+      const [G, docs, cats, lv] = await Promise.all([
+        githubDownloads(),
+        cleanups.find({}, { projection: { _id: 0, installId: 1, at: 1, bytes: 1, trigger: 1, platform: 1 } }).sort({ installId: 1, at: 1 }).toArray(),
+        cleanups.aggregate([{ $unwind: '$categories' }, { $group: { _id: '$categories.id', name: { $last: '$categories.name' }, bytes: { $sum: '$categories.bytes' } } }, { $sort: { bytes: -1 } }, { $limit: 6 }]).toArray(),
+        installs.find({ checkedInAt: { $gte: new Date(Date.now() - 30 * 86_400_000) } }, { projection: { _id: 0, cleanBelowGB: 1 } }).toArray(),
+      ]);
+      // Cleans from one computer less than 30 minutes apart count as one clean (same rule as the stats page).
+      const sessions = []; let prev = null;
+      for (const c of docs) {
+        if (!prev || prev.installId !== c.installId || c.at - prev.at > 30 * 60_000) sessions.push({ at: c.at, bytes: 0, trigger: c.trigger });
+        sessions[sessions.length - 1].bytes += c.bytes;
+        prev = c;
+      }
+      const total = docs.reduce((t, c) => t + c.bytes, 0);
+      const mac = docs.filter((c) => c.platform !== 'windows').reduce((t, c) => t + c.bytes, 0);
+      // Running total by day, from the first clean to today
+      const byDay = new Map();
+      for (const c of docs) { const d = c.at.toISOString().slice(0, 10); byDay.set(d, (byDay.get(d) || 0) + c.bytes); }
+      const timeline = [];
+      if (docs.length) {
+        const first = new Date([...byDay.keys()].sort()[0] + 'T00:00:00Z'); let run = 0;
+        for (let t = first.getTime(); t <= Date.now(); t += 86_400_000) { const d = new Date(t).toISOString().slice(0, 10); run += byDay.get(d) || 0; timeline.push({ day: d, bytes: run }); }
+      }
+      const lvls = lv.map((x) => x.cleanBelowGB).filter(Boolean).sort((a, b) => a - b);
+      publicCache = { at: Date.now(), body: {
+        downloads: { mac: G.mac, windows: G.windows, total: G.total },
+        cleared: { bytes: total, mac, windows: total - mac, computers: new Set(docs.map((c) => c.installId)).size, cleans: sessions.length },
+        biggestClean: sessions.reduce((m, x) => Math.max(m, x.bytes), 0),
+        averageClean: sessions.length ? Math.round(total / sessions.length) : 0,
+        handsFree: sessions.filter((x) => x.trigger === 'auto').length,
+        fromPhone: sessions.filter((x) => x.trigger === 'phone').length,
+        typicalCleanBelowGB: lvls.length ? lvls[lvls.length >> 1] : 15,
+        categories: cats.map((c) => ({ name: c.name, bytes: c.bytes })),
+        timeline,
+        updatedAt: new Date().toISOString(),
+      } };
+    }
+    res.set('Cache-Control', 'public, max-age=60').json(publicCache.body);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Could not load stats' }); }
 });
 
 app.get('/v1/stats', async (req, res) => {
