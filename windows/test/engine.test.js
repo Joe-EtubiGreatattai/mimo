@@ -1,7 +1,7 @@
 // Runs Mimo's Windows engine against a fake user folder laid out like Windows.
-Object.defineProperty(process, 'platform', { value: 'win32' }); // test the Windows places on any machine
 const fs = require('fs'), path = require('path'), os = require('os'), assert = require('assert');
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mimo-test-'));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mimo-test-')); // before faking Windows: os.tmpdir() reads TEMP on Windows
+Object.defineProperty(process, 'platform', { value: 'win32' }); // test the Windows places on any machine
 const home = path.join(root, 'Users', 'great');
 process.env.HOME = home; process.env.USERPROFILE = home;
 process.env.LOCALAPPDATA = path.join(home, 'AppData', 'Local');
