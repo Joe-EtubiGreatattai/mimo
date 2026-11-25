@@ -1,7 +1,7 @@
-name: Windows build
+name: Windows and Linux builds
 
-# Builds Mimo for Windows on a real Windows machine, tests it, and attaches
-# Mimo-Setup.exe to the release. Runs automatically when a release is published,
+# Builds Mimo for Windows and Linux on real Windows and Ubuntu machines, tests them, and attaches
+# Mimo-Setup.exe, Mimo-Linux.AppImage and Mimo-Linux.deb to the release. Runs automatically when a release is published,
 # or by hand from the Actions tab.
 on:
   release:
@@ -61,3 +61,46 @@ jobs:
         with:
           name: Mimo-Setup
           path: windows/dist/Mimo-Setup.exe
+
+  linux:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Install
+        # retry: Electron's download server sometimes answers 503
+        run: for i in 1 2 3; do npm ci && exit 0; echo "npm ci failed, retrying in 30s"; sleep 30; done; exit 1
+
+      - name: Engine tests (fake Windows and Linux home folders)
+        run: npm test
+
+      - name: Smoke test (app starts, reads the disk, draws its window)
+        run: xvfb-run -a npx electron . --no-sandbox --smoke-test
+
+      - name: Build AppImage and .deb
+        run: npx electron-builder --linux AppImage deb --x64 --publish never
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          ls -la dist
+          # latest-linux.yml lets the AppImage update itself (its blockmap is built into the file)
+          gh release upload "$TAG" dist/Mimo-Linux.AppImage dist/Mimo-Linux.deb dist/latest-linux.yml --clobber --repo "$GITHUB_REPOSITORY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mimo-Linux
+          path: |
+            windows/dist/Mimo-Linux.AppImage
+            windows/dist/Mimo-Linux.deb

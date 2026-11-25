@@ -1,17 +1,21 @@
 {
   "name": "mimo",
   "productName": "Mimo",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "A friendly tray dog that watches your free space and cleans up before you run out.",
-  "author": "Great Attai",
+  "author": {
+    "name": "Great Attai",
+    "email": "greatattai442442@gmail.com"
+  },
   "homepage": "https://joe-etubigreatattai.github.io/mimo/",
   "main": "src/main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
     "smoke": "electron . --smoke-test",
-    "test": "node test/engine.test.js && node test/loop.test.js",
-    "dist": "electron-builder --win nsis --publish never"
+    "test": "node test/engine.test.js && node test/linux.test.js && node test/loop.test.js",
+    "dist": "electron-builder --win nsis --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never"
   },
   "dependencies": {
     "electron-updater": "6.6.2",
@@ -64,6 +68,56 @@
         "repo": "mimo",
         "releaseType": "release"
       }
-    ]
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons",
+      "category": "Utility",
+      "executableName": "mimo",
+      "synopsis": "A friendly dog that keeps your disk from filling up",
+      "description": "Mimo watches your free space and cleans caches and junk before your disk fills up.",
+      "maintainer": "Great Attai <greatattai442442@gmail.com>",
+      "desktop": {
+        "entry": {
+          "Name": "Mimo",
+          "Comment": "Watches your free space and cleans up before you run out",
+          "StartupWMClass": "Mimo",
+          "Keywords": "storage;disk;clean;cache;space;"
+        }
+      }
+    },
+    "appImage": {
+      "artifactName": "Mimo-Linux.AppImage"
+    },
+    "deb": {
+      "artifactName": "Mimo-Linux.deb",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ],
+      "recommends": [
+        "libappindicator3-1"
+      ]
+    }
   }
 }

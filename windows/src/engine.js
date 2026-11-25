@@ -1,4 +1,4 @@
-// Mimo's brain for Windows. Plain Node (no Electron imports) so it can be tested anywhere.
+// Mimo's brain for Windows and Linux. Plain Node (no Electron imports) so it can be tested anywhere.
 // main.js gives it: a settings file path, a trash() function, an emptyRecycleBin() function and a notify() callback.
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -6,7 +6,8 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
-const { folders, knownPlaces, nodeModulesPlace, describe } = require('./places');
+const { folders, knownPlaces, nodeModulesPlace, describe, trashDir, BIN, IS_LINUX } = require('./places');
+const INSTALLERS = IS_LINUX ? /\.(deb|rpm|appimage|run|zip|iso|tar\.gz|tgz|tar\.xz|tar\.bz2|7z|rar|flatpakref)$/i : /\.(exe|msi|zip|iso|7z|rar)$/i;
 
 const API = 'https://mimo.techtree.lifestyle/v1';
 const GB = 1e9;
@@ -25,8 +26,15 @@ const DEFAULTS = {
   installReported: false, remoteOn: false, pairedPhones: 0, autoUpdate: true,
 };
 
+// "Windows 10.0.22631" or "Ubuntu 24.04.1 LTS" (from /etc/os-release on Linux)
+function osName() {
+  if (!IS_LINUX) return `Windows ${os.release()}`;
+  try { const m = fs.readFileSync('/etc/os-release', 'utf8').match(/^PRETTY_NAME="?([^"\n]+)"?/m); if (m) return m[1].slice(0, 40); } catch {}
+  return `Linux ${os.release()}`.slice(0, 40);
+}
+
 class Engine extends EventEmitter {
-  constructor({ settingsFile, trash, emptyRecycleBin, appVersion = '0.0.0', platform = 'windows', fetchImpl } = {}) {
+  constructor({ settingsFile, trash, emptyRecycleBin, appVersion = '0.0.0', platform = IS_LINUX ? 'linux' : 'windows', fetchImpl } = {}) {
     super();
     this.settingsFile = settingsFile;
     this.trash = trash || ((p) => fsp.rm(p, { recursive: true, force: true }));
@@ -121,8 +129,9 @@ class Engine extends EventEmitter {
     return list.map((p) => ({ ...p, days: this.s.days[p.id] ?? p.days ?? 30 }));
   }
   resolvePaths(p) {
-    if (p.glob) {
-      try { return fs.readdirSync(p.glob.root).map((d) => path.join(p.glob.root, d, p.glob.child)).filter((x) => fs.existsSync(x)); } catch { return []; }
+    const globs = p.globs || (p.glob ? [p.glob] : null);
+    if (globs) {
+      return globs.flatMap((g) => { try { return fs.readdirSync(g.root).map((d) => path.join(g.root, d, g.child)).filter((x) => fs.existsSync(x)); } catch { return []; } });
     }
     return p.paths || [];
   }
@@ -193,7 +202,7 @@ class Engine extends EventEmitter {
     const out = [];
     if (p.mode === 'recycleBin') {
       const bytes = await this.recycleBinSize();
-      return bytes > 0 ? [{ path: '$Recycle.Bin', bytes, label: 'Recycle Bin' }] : [];
+      return bytes > 0 ? [{ path: IS_LINUX ? trashDir() : '$Recycle.Bin', bytes, label: BIN }] : [];
     }
     if (p.mode === 'nodeModules') {
       for (const n of (this.map && this.map.nodeModules) || []) {
@@ -217,7 +226,7 @@ class Engine extends EventEmitter {
         let kids = [];
         try { kids = await fsp.readdir(root, { withFileTypes: true }); } catch {}
         for (const k of kids) {
-          if (!k.isFile() || !/\.(exe|msi|zip|iso|7z|rar)$/i.test(k.name)) continue;
+          if (!k.isFile() || !INSTALLERS.test(k.name)) continue;
           const full = path.join(root, k.name);
           try { const st = await fsp.stat(full); if (st.mtimeMs < cutoff) out.push({ path: full, bytes: st.size }); } catch {}
         }
@@ -227,6 +236,7 @@ class Engine extends EventEmitter {
   }
 
   async recycleBinSize() {
+    if (IS_LINUX) return this.sizeOf(path.join(trashDir(), 'files'));
     if (process.platform !== 'win32') return 0;
     const root = path.parse(this.home).root;
     const bin = path.join(root, '$Recycle.Bin');
@@ -465,7 +475,7 @@ class Engine extends EventEmitter {
     const firstTime = !this.s.installReported;
     try {
       const r = await this.fetch(API + '/installs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ installId: this.s.installId, appVersion: this.appVersion, osVersion: `Windows ${os.release()}`, arch: process.arch, platform: this.platform }) });
+        body: JSON.stringify({ installId: this.s.installId, appVersion: this.appVersion, osVersion: osName(), arch: process.arch, platform: this.platform }) });
       if (r.ok) { this.s.installReported = true; this.s.installReportedVersion = this.appVersion; this.save(); if (firstTime) this.log('Install counted anonymously'); }
     } catch {}
   }
@@ -580,7 +590,7 @@ class Engine extends EventEmitter {
       updateStatus: this.updateStatus || '',
       nextReport: this.lastReport + this.s.reportMinutes * 60_000,
       phone: { code: this.pairCode, expires: this.pairExpires, paired: this.s.pairedPhones, error: this.remoteError, url: 'https://mimo.techtree.lifestyle/app/' + (this.pairCode ? '#pair=' + this.pairCode : '') },
-      home: this.home, version: this.appVersion,
+      home: this.home, version: this.appVersion, platform: this.platform, binName: BIN, fileManager: IS_LINUX ? 'Files' : 'Explorer',
     };
   }
 }

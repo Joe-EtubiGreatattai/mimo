@@ -1,4 +1,4 @@
-// Places Mimo recognises on Windows. Paths use environment folders so they work for any user.
+// Places Mimo recognises on Windows and Linux. Paths use environment folders so they work for any user.
 // mode:
 //   contents  – delete everything inside (rebuilds itself)
 //   older     – move files older than N days to the Recycle Bin
@@ -18,7 +18,53 @@ function folders() {
   };
 }
 
+const IS_LINUX = process.platform === 'linux';
+const BIN = IS_LINUX ? 'Trash' : 'Recycle Bin';
+
+// Linux follows the XDG folders: ~/.cache for caches, ~/.config for app data, ~/.local/share/Trash for the Trash.
+function linuxFolders() {
+  const home = os.homedir();
+  return {
+    home,
+    cache: process.env.XDG_CACHE_HOME || path.join(home, '.cache'),
+    config: process.env.XDG_CONFIG_HOME || path.join(home, '.config'),
+    data: process.env.XDG_DATA_HOME || path.join(home, '.local', 'share'),
+  };
+}
+function trashDir() { return path.join(linuxFolders().data, 'Trash'); }
+
+function linuxPlaces() {
+  const f = linuxFolders();
+  const C = (...p) => path.join(f.cache, ...p);
+  const G = (...p) => path.join(f.config, ...p);
+  const H = (...p) => path.join(f.home, ...p);
+  const snapC = (app, ...p) => H('snap', app, 'common', '.cache', ...p);
+  return [
+    { id: 'thumbnails', name: 'Thumbnail cache', icon: 'disk', paths: [C('thumbnails')], mode: 'contents', defaultOn: true },
+    { id: 'chrome', name: 'Chrome cache', icon: 'globe', paths: [C('google-chrome', 'Default', 'Cache'), C('google-chrome', 'Default', 'Code Cache'), G('google-chrome', 'Default', 'Service Worker', 'CacheStorage')], mode: 'contents', defaultOn: true },
+    { id: 'chromium', name: 'Chromium cache', icon: 'globe', paths: [C('chromium', 'Default', 'Cache'), C('chromium', 'Default', 'Code Cache'), snapC('chromium', 'chromium', 'Default', 'Cache')], mode: 'contents', defaultOn: true },
+    { id: 'firefox', name: 'Firefox cache', icon: 'globe', globs: [{ root: C('mozilla', 'firefox'), child: 'cache2' }, { root: snapC('firefox', 'mozilla', 'firefox'), child: 'cache2' }], mode: 'contents', defaultOn: true },
+    { id: 'edge', name: 'Edge cache', icon: 'globe', paths: [C('microsoft-edge', 'Default', 'Cache'), C('microsoft-edge', 'Default', 'Code Cache')], mode: 'contents', defaultOn: true },
+    { id: 'brave', name: 'Brave cache', icon: 'globe', paths: [C('BraveSoftware', 'Brave-Browser', 'Default', 'Cache'), C('BraveSoftware', 'Brave-Browser', 'Default', 'Code Cache')], mode: 'contents', defaultOn: true },
+    { id: 'slack', name: 'Slack cache', icon: 'message', paths: [G('Slack', 'Cache'), G('Slack', 'Code Cache'), G('Slack', 'Service Worker', 'CacheStorage')], mode: 'contents', defaultOn: true },
+    { id: 'discord', name: 'Discord cache', icon: 'message', paths: [G('discord', 'Cache'), G('discord', 'Code Cache')], mode: 'contents', defaultOn: true },
+    { id: 'teams', name: 'Teams cache', icon: 'message', paths: [G('teams-for-linux', 'Cache'), G('teams-for-linux', 'Code Cache'), G('Microsoft', 'Microsoft Teams', 'Cache')], mode: 'contents', defaultOn: true },
+    { id: 'spotify', name: 'Spotify cache', icon: 'music', paths: [C('spotify', 'Data'), snapC('spotify', 'spotify', 'Data')], mode: 'contents', defaultOn: true },
+    { id: 'vscode', name: 'VS Code cache', icon: 'code', paths: [G('Code', 'Cache'), G('Code', 'CachedData'), G('Code', 'Code Cache'), G('Code', 'CachedExtensionVSIXs')], mode: 'contents', defaultOn: true },
+    { id: 'npm', name: 'npm cache', icon: 'box', paths: [H('.npm', '_cacache')], mode: 'contents', defaultOn: true },
+    { id: 'yarn', name: 'Yarn cache', icon: 'box', paths: [C('yarn')], mode: 'contents', defaultOn: true },
+    { id: 'pnpm', name: 'pnpm store', icon: 'box', paths: [H('.local', 'share', 'pnpm', 'store')], mode: 'contents', defaultOn: false },
+    { id: 'pip', name: 'pip cache', icon: 'box', paths: [C('pip')], mode: 'contents', defaultOn: true },
+    { id: 'gobuild', name: 'Go build cache', icon: 'box', paths: [C('go-build')], mode: 'contents', defaultOn: true },
+    { id: 'gradle', name: 'Gradle caches', icon: 'box', paths: [H('.gradle', 'caches')], mode: 'contents', defaultOn: true },
+    { id: 'cargo', name: 'Cargo downloads', icon: 'box', paths: [H('.cargo', 'registry', 'cache')], mode: 'contents', defaultOn: false },
+    { id: 'installers', name: 'Old installers in Downloads', icon: 'download', paths: [H('Downloads')], mode: 'installers', days: 30, defaultOn: false },
+    { id: 'bin', name: 'Empty the Trash', icon: 'trash', paths: [], mode: 'recycleBin', defaultOn: false, permanent: true },
+  ].map((p) => ({ permanent: p.mode === 'contents' || p.mode === 'nodeModules' || p.mode === 'recycleBin', ...p }));
+}
+
 function knownPlaces() {
+  if (IS_LINUX) return linuxPlaces();
   const f = folders();
   const L = (...p) => path.join(f.local, ...p);
   const R = (...p) => path.join(f.roaming, ...p);
@@ -49,12 +95,12 @@ const nodeModulesPlace = { id: 'node_modules', name: 'node_modules in old projec
 function describe(p, days) {
   switch (p.mode) {
     case 'contents': return p.custom ? 'Everything inside is deleted permanently.' : 'Deleted. Rebuilds itself when needed.';
-    case 'older': return p.permanent ? `Files older than ${days} days are deleted.` : `Files older than ${days} days move to the Recycle Bin.`;
-    case 'installers': return `Installers older than ${days} days move to the Recycle Bin.`;
+    case 'older': return p.permanent ? `Files older than ${days} days are deleted.` : `Files older than ${days} days move to the ${BIN}.`;
+    case 'installers': return `Installers older than ${days} days move to the ${BIN}.`;
     case 'nodeModules': return `Deleted in projects untouched for ${days} days. Run npm install to restore.`;
-    case 'recycleBin': return 'Permanently deletes what is already in your Recycle Bin.';
+    case 'recycleBin': return `Permanently deletes what is already in your ${BIN}.`;
     default: return '';
   }
 }
 
-module.exports = { folders, knownPlaces, nodeModulesPlace, describe };
+module.exports = { folders, knownPlaces, nodeModulesPlace, describe, trashDir, BIN, IS_LINUX };

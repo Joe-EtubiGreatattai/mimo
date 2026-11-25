@@ -49,6 +49,7 @@ function rateLimit(req, res, next) {
   next();
 }
 
+const PLAT = (p, osV) => ['windows', 'macos', 'linux'].includes(p) ? p : (/^windows/i.test(osV || '') ? 'windows' : 'macos');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const clean = (v, max = 40) => (typeof v === 'string' ? v.replace(/[^\w .()+-]/g, '').slice(0, max) : undefined);
 
@@ -64,7 +65,7 @@ app.post('/v1/installs', rateLimit, async (req, res) => {
       { installId: installId.toLowerCase() },
       {
         $setOnInsert: { installId: installId.toLowerCase(), firstSeen: now },
-        $set: { lastSeen: now, appVersion: clean(appVersion), osVersion: clean(osVersion), arch: clean(arch, 12), platform: ['windows', 'macos'].includes(platform) ? platform : (/^windows/i.test(osVersion || '') ? 'windows' : 'macos') },
+        $set: { lastSeen: now, appVersion: clean(appVersion), osVersion: clean(osVersion), arch: clean(arch, 12), platform: PLAT(platform, osVersion) },
       },
       { upsert: true }
     );
@@ -86,7 +87,7 @@ app.post('/v1/cleanups', rateLimit, async (req, res) => {
       .map((c) => ({ id: String(c.id), name: clean(c.name, 50) || String(c.id), bytes: Number(c.bytes) }));
     await cleanups.insertOne({
       at: new Date(), installId: installId.toLowerCase(), bytes: b, categories: cats,
-      platform: platform === 'windows' ? 'windows' : 'macos', appVersion: clean(appVersion), arch: clean(arch, 12),
+      platform: PLAT(platform), appVersion: clean(appVersion), arch: clean(arch, 12),
       trigger: ['auto', 'review', 'phone', 'manual'].includes(trigger) ? trigger : 'other',
     });
     // A clean also tells us which version that computer runs now. If its first-launch report never
@@ -95,7 +96,7 @@ app.post('/v1/cleanups', rateLimit, async (req, res) => {
     await installs.updateOne(
       { installId: installId.toLowerCase() },
       {
-        $setOnInsert: { installId: installId.toLowerCase(), firstSeen: now, platform: platform === 'windows' ? 'windows' : 'macos', arch: clean(arch, 12) },
+        $setOnInsert: { installId: installId.toLowerCase(), firstSeen: now, platform: PLAT(platform), arch: clean(arch, 12) },
         $set: { lastSeen: now, ...(clean(appVersion) ? { appVersion: clean(appVersion) } : {}) },
       },
       { upsert: true }
@@ -116,7 +117,7 @@ app.post('/v1/checkins', rateLimit, async (req, res) => {
       { installId: installId.toLowerCase() },
       {
         $setOnInsert: { installId: installId.toLowerCase(), firstSeen: now },
-        $set: { lastSeen: now, checkedInAt: now, appVersion: clean(appVersion), platform: platform === 'windows' ? 'windows' : 'macos',
+        $set: { lastSeen: now, checkedInAt: now, appVersion: clean(appVersion), platform: PLAT(platform),
           cleanBelowGB: Math.round(lvl), askFirst: askFirst !== false, freeGB: Math.round(free), totalGB: Math.round(total) },
       },
       { upsert: true }
@@ -126,7 +127,7 @@ app.post('/v1/checkins', rateLimit, async (req, res) => {
 });
 
 // Download button clicks. The page sends these with sendBeacon (plain text), so accept text too.
-const SOURCES = new Set(['hero', 'footer', 'nav', 'readme', 'other', 'hero-win', 'footer-win', 'nav-win']);
+const SOURCES = new Set(['hero', 'footer', 'nav', 'readme', 'other', 'hero-win', 'footer-win', 'nav-win', 'hero-linux', 'footer-linux', 'nav-linux']);
 app.get('/v1/downloads', async (req, res) => {
   try { res.json({ downloads: await downloads.countDocuments() }); }
   catch (e) { console.error(e); res.status(500).json({ error: 'Could not load downloads' }); }
@@ -197,24 +198,24 @@ async function stats() {
 // Everything the stats dashboard needs, for the last N days (7, 30 or 90). All anonymous counts.
 let devicesCol = null;
 // Real downloads, counted by GitHub across every release (includes links shared outside the website)
-let gh = { mac: 0, windows: 0, total: 0, byVersion: [], at: 0 };
+let gh = { mac: 0, windows: 0, linux: 0, total: 0, byVersion: [], at: 0 };
 async function githubDownloads() {
   if (Date.now() - gh.at < 600_000) return gh;
   try {
     const r = await fetch('https://api.github.com/repos/Joe-EtubiGreatattai/mimo/releases?per_page=100', { headers: { 'User-Agent': 'mimo-backend', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) });
     if (!r.ok) throw new Error('GitHub ' + r.status);
-    let mac = 0, windows = 0; const byVersion = [];
+    let mac = 0, windows = 0, linux = 0; const byVersion = [];
     for (const rel of await r.json()) {
       if (rel.draft) continue;
-      let m = 0, w = 0;
+      let m = 0, w = 0, l = 0;
       for (const a of rel.assets || []) {
-        if (/\.dmg$/i.test(a.name)) m += a.download_count; else if (/\.exe$/i.test(a.name)) w += a.download_count;
+        if (/\.dmg$/i.test(a.name)) m += a.download_count; else if (/\.exe$/i.test(a.name)) w += a.download_count; else if (/\.(AppImage|deb)$/i.test(a.name)) l += a.download_count;
       }
-      mac += m; windows += w;
-      byVersion.push({ version: String(rel.tag_name || '').replace(/^v/, ''), at: rel.published_at, mac: m, windows: w, n: m + w });
+      mac += m; windows += w; linux += l;
+      byVersion.push({ version: String(rel.tag_name || '').replace(/^v/, ''), at: rel.published_at, mac: m, windows: w, linux: l, n: m + w + l });
     }
     byVersion.sort((x, y) => String(y.at).localeCompare(String(x.at)));
-    gh = { mac, windows, total: mac + windows, byVersion, at: Date.now() };
+    gh = { mac, windows, linux, total: mac + windows + linux, byVersion, at: Date.now() };
   } catch (e) { console.error('github downloads', e.message); gh.at = Date.now() - 540_000; }
   return gh;
 }
@@ -232,7 +233,7 @@ app.get('/v1/dashboard', async (req, res) => {
       installs.countDocuments({ firstSeen: { $gte: prevStart, $lt: start } }),
       installs.countDocuments({ firstSeen: { $gte: new Date(now - DAY) } }),
       installs.aggregate([{ $match: { firstSeen: { $gte: start } } }, { $group: { _id: { d: dayOf('$firstSeen'), p: plat }, n: { $sum: 1 } } }]).toArray(),
-      downloads.aggregate([{ $match: { at: { $gte: start } } }, { $group: { _id: { d: dayOf('$at'), w: { $regexMatch: { input: { $ifNull: ['$source', ''] }, regex: /-win$/ } } }, n: { $sum: 1 } } }]).toArray(),
+      downloads.aggregate([{ $match: { at: { $gte: start } } }, { $group: { _id: { d: dayOf('$at'), w: { $regexMatch: { input: { $ifNull: ['$source', ''] }, regex: /-win$/ } }, l: { $regexMatch: { input: { $ifNull: ['$source', ''] }, regex: /-linux$/ } } }, n: { $sum: 1 } } }]).toArray(),
       downloads.countDocuments(),
       downloads.countDocuments({ at: { $gte: start } }),
       downloads.countDocuments({ at: { $gte: prevStart, $lt: start } }),
@@ -248,7 +249,7 @@ app.get('/v1/dashboard', async (req, res) => {
       cleanups.aggregate([{ $match: { at: { $gte: start } } }, { $group: { _id: null, bytes: { $sum: '$bytes' }, n: { $sum: 1 } } }]).toArray(),
       cleanups.aggregate([{ $match: { at: { $gte: prevStart, $lt: start } } }, { $group: { _id: null, bytes: { $sum: '$bytes' } } }]).toArray(),
       cleanups.aggregate([{ $match: { at: { $gte: start } } }, { $group: { _id: { d: dayOf('$at'), p: '$platform' }, bytes: { $sum: '$bytes' } } }]).toArray(),
-      cleanups.aggregate([{ $unwind: '$categories' }, { $group: { _id: '$categories.id', name: { $last: '$categories.name' }, bytes: { $sum: '$categories.bytes' }, mac: { $sum: { $cond: [{ $eq: ['$platform', 'windows'] }, 0, '$categories.bytes'] } }, n: { $sum: 1 } } }, { $sort: { bytes: -1 } }, { $limit: 10 }]).toArray(),
+      cleanups.aggregate([{ $unwind: '$categories' }, { $group: { _id: '$categories.id', name: { $last: '$categories.name' }, bytes: { $sum: '$categories.bytes' }, mac: { $sum: { $cond: [{ $in: ['$platform', ['windows', 'linux']] }, 0, '$categories.bytes'] } }, linux: { $sum: { $cond: [{ $eq: ['$platform', 'linux'] }, '$categories.bytes', 0] } }, n: { $sum: 1 } } }, { $sort: { bytes: -1 } }, { $limit: 10 }]).toArray(),
       cleanups.aggregate([{ $group: { _id: '$trigger', n: { $sum: 1 }, bytes: { $sum: '$bytes' } } }]).toArray(),
       cleanups.aggregate([{ $group: { _id: '$platform', bytes: { $sum: '$bytes' } } }]).toArray(),
     ]);
@@ -266,7 +267,7 @@ app.get('/v1/dashboard', async (req, res) => {
     const median = (xs) => { if (!xs.length) return 0; const a = [...xs].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2); };
     const bucket = (list, val, edges) => edges.map(([label, lo, hi]) => {
       const inB = list.filter((x) => val(x) >= lo && val(x) < hi);
-      return { label, n: inB.length, mac: inB.filter((x) => x.platform !== 'windows').length, windows: inB.filter((x) => x.platform === 'windows').length };
+      return { label, n: inB.length, mac: inB.filter((x) => x.platform !== 'windows' && x.platform !== 'linux').length, windows: inB.filter((x) => x.platform === 'windows').length, linux: inB.filter((x) => x.platform === 'linux').length };
     });
     const levels = {
       computers: lv.length,
@@ -284,28 +285,31 @@ app.get('/v1/dashboard', async (req, res) => {
       const get = (arr, f) => arr.filter(f).reduce((t, x) => t + x.n, 0);
       series.push({
         day: d,
-        mac: get(installDays, (x) => x._id.d === d && x._id.p !== 'windows'),
+        mac: get(installDays, (x) => x._id.d === d && x._id.p === 'macos'),
         windows: get(installDays, (x) => x._id.d === d && x._id.p === 'windows'),
-        dlMac: get(dlDays, (x) => x._id.d === d && !x._id.w),
+        linux: get(installDays, (x) => x._id.d === d && x._id.p === 'linux'),
+        dlMac: get(dlDays, (x) => x._id.d === d && !x._id.w && !x._id.l),
+        dlLinux: get(dlDays, (x) => x._id.d === d && x._id.l),
         dlWindows: get(dlDays, (x) => x._id.d === d && x._id.w),
-        clearedMac: clDays.filter((x) => x._id.d === d && x._id.p !== 'windows').reduce((t, x) => t + x.bytes, 0),
+        clearedMac: clDays.filter((x) => x._id.d === d && x._id.p !== 'windows' && x._id.p !== 'linux').reduce((t, x) => t + x.bytes, 0),
+        clearedLinux: clDays.filter((x) => x._id.d === d && x._id.p === 'linux').reduce((t, x) => t + x.bytes, 0),
         clearedWindows: clDays.filter((x) => x._id.d === d && x._id.p === 'windows').reduce((t, x) => t + x.bytes, 0),
       });
     }
     const p = Object.fromEntries(byPlatform.map((x) => [x._id, x.n]));
     res.set('Cache-Control', 'no-store').json({
       days, updatedAt: new Date().toISOString(),
-      installs: { total, mac: p.macos || 0, windows: p.windows || 0, inRange, prevRange, today },
+      installs: { total, mac: p.macos || 0, windows: p.windows || 0, linux: p.linux || 0, inRange, prevRange, today },
       downloads: { total: dlTotal, inRange: dlRange, prevRange: dlPrev, bySource: Object.fromEntries(dlBySource.map((x) => [x._id || 'other', x.n])) },
       levels,
-      github: { mac: G.mac, windows: G.windows, total: G.total, byVersion: G.byVersion },
+      github: { mac: G.mac, windows: G.windows, linux: G.linux || 0, total: G.total, byVersion: G.byVersion },
       phones: { paired: (phoneAgg[0] || {}).phones || 0, computers: (phoneAgg[0] || {}).macs || 0, online },
       windowsWaitlist: waiting,
       cleared: {
         total: (clAll[0] || {}).bytes || 0, cleans: sessions.length, computers: (clAll[0] || {}).computers || 0,
         inRange: (clRange[0] || {}).bytes || 0, cleansInRange: sessions.filter((x) => x.at >= start).length, prevRange: (clPrev[0] || {}).bytes || 0,
-        mac: (clPlatform.find((x) => x._id === 'macos') || {}).bytes || 0, windows: (clPlatform.find((x) => x._id === 'windows') || {}).bytes || 0,
-        categories: clCats.map((c) => ({ id: c._id, name: c.name, bytes: c.bytes, mac: c.mac, windows: c.bytes - c.mac, cleans: c.n })),
+        mac: (clPlatform.find((x) => x._id === 'macos') || {}).bytes || 0, windows: (clPlatform.find((x) => x._id === 'windows') || {}).bytes || 0, linux: (clPlatform.find((x) => x._id === 'linux') || {}).bytes || 0,
+        categories: clCats.map((c) => ({ id: c._id, name: c.name, bytes: c.bytes, mac: c.mac, linux: c.linux, windows: c.bytes - c.mac - c.linux, cleans: c.n })),
         triggers: Object.fromEntries(clTriggers.map((t) => [t._id, { cleans: sessions.filter((x) => x.trigger === t._id).length || t.n, bytes: t.bytes }])),
       },
       series,
@@ -336,7 +340,8 @@ app.get('/v1/public-stats', async (req, res) => {
         prev = c;
       }
       const total = docs.reduce((t, c) => t + c.bytes, 0);
-      const mac = docs.filter((c) => c.platform !== 'windows').reduce((t, c) => t + c.bytes, 0);
+      const mac = docs.filter((c) => c.platform !== 'windows' && c.platform !== 'linux').reduce((t, c) => t + c.bytes, 0);
+      const linux = docs.filter((c) => c.platform === 'linux').reduce((t, c) => t + c.bytes, 0);
       // Running total by day, from the first clean to today
       const byDay = new Map();
       for (const c of docs) { const d = c.at.toISOString().slice(0, 10); byDay.set(d, (byDay.get(d) || 0) + c.bytes); }
@@ -347,8 +352,8 @@ app.get('/v1/public-stats', async (req, res) => {
       }
       const lvls = lv.map((x) => x.cleanBelowGB).filter(Boolean).sort((a, b) => a - b);
       publicCache = { at: Date.now(), body: {
-        downloads: { mac: G.mac, windows: G.windows, total: G.total },
-        cleared: { bytes: total, mac, windows: total - mac, computers: new Set(docs.map((c) => c.installId)).size, cleans: sessions.length },
+        downloads: { mac: G.mac, windows: G.windows, linux: G.linux || 0, total: G.total },
+        cleared: { bytes: total, mac, linux, windows: total - mac - linux, computers: new Set(docs.map((c) => c.installId)).size, cleans: sessions.length },
         biggestClean: sessions.reduce((m, x) => Math.max(m, x.bytes), 0),
         averageClean: sessions.length ? Math.round(total / sessions.length) : 0,
         handsFree: sessions.filter((x) => x.trigger === 'auto').length,

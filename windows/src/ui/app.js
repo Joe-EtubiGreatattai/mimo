@@ -1,4 +1,4 @@
-/* Mimo for Windows — window UI. Talks to the engine through window.mimo (preload bridge). */
+/* Mimo for Windows and Linux — window UI. Talks to the engine through window.mimo (preload bridge). */
 (() => {
   const $ = (id) => document.getElementById(id);
   const icon = (n) => `<svg class="i"><use href="#i-${n}"/></svg>`;
@@ -125,11 +125,11 @@
         <section class="card">
           <label class="row pick">
             <input type="checkbox" data-sel="${esc(f.id)}" ${selected.has(f.id) ? 'checked' : ''}><span class="box">${icon('check')}</span>
-            <div class="grow"><div class="name">${esc(f.name)}</div><div class="sub ${f.permanent ? 'perm' : ''}">${f.count.toLocaleString()} item${f.count === 1 ? '' : 's'} · ${f.permanent ? 'deleted permanently' : 'moved to the Recycle Bin'}</div></div>
+            <div class="grow"><div class="name">${esc(f.name)}</div><div class="sub ${f.permanent ? 'perm' : ''}">${f.count.toLocaleString()} item${f.count === 1 ? '' : 's'} · ${f.permanent ? 'deleted permanently' : 'moved to the ' + (S.binName || 'Recycle Bin')}</div></div>
             <span class="size">${fmt(f.bytes)}</span>
           </label>
           <details class="folder"><summary class="sub" style="display:flex;align-items:center;gap:4px"><span class="chev">${icon('chev')}</span>Biggest items</summary>
-            <div class="kids">${f.top.map((t) => `<div class="kid"><span class="grow" title="${esc(t.path)}">${esc(t.label)}</span><span class="sub">${fmt(t.bytes)}</span>${t.path && t.path !== '$Recycle.Bin' ? `<button class="iconbtn" title="Show in Explorer" data-reveal="${esc(t.path)}">${icon('eye')}</button>` : ''}</div>`).join('')}
+            <div class="kids">${f.top.map((t) => `<div class="kid"><span class="grow" title="${esc(t.path)}">${esc(t.label)}</span><span class="sub">${fmt(t.bytes)}</span>${t.path && t.label !== (S.binName || 'Recycle Bin') ? `<button class="iconbtn" title="Show in ${S.fileManager || 'Explorer'}" data-reveal="${esc(t.path)}">${icon('eye')}</button>` : ''}</div>`).join('')}
             ${f.count > f.top.length ? `<div class="sub">and ${(f.count - f.top.length).toLocaleString()} more</div>` : ''}</div>
           </details>
         </section>`).join('')}
@@ -170,7 +170,7 @@
               const cov = covered(c.path), mineAlready = S.places.some((p) => p.custom && p.path === c.path);
               return `<div class="kid"><span class="grow" title="${esc(c.path)}">${esc(c.path.slice(home.length + 1))}</span><span class="sub">${fmt(c.bytes)}</span>
                 ${cov ? `<span class="covered">${esc(cov.name)}</span>` : mineAlready ? `<span class="covered">Yours</span>` : `<button class="iconbtn" title="Add as a cleaning place" data-add="${esc(c.path)}">${icon('plus')}</button>`}
-                <button class="iconbtn" title="Show in Explorer" data-reveal="${esc(c.path)}">${icon('eye')}</button></div>`;
+                <button class="iconbtn" title="Show in ${S.fileManager || 'Explorer'}" data-reveal="${esc(c.path)}">${icon('eye')}</button></div>`;
             }).join('')}</div>
           </details>`).join('')}
       </section>` : '';
@@ -256,8 +256,8 @@
     on('approve', async (b) => {
       const f = S.findings.filter((x) => selected.has(x.id));
       const sum = f.reduce((t, x) => t + x.bytes, 0);
-      const list = f.map((x) => `<div class="row"><span class="badge">${icon(x.permanent ? 'trash' : 'folder')}</span><div class="grow"><div class="name">${esc(x.name)}</div><div class="sub ${x.permanent ? 'perm' : ''}">${x.permanent ? 'Deleted permanently' : 'Moved to the Recycle Bin'}</div></div><span class="size">${fmt(x.bytes)}</span></div>`).join('');
-      if (await confirmSheet({ title: `Clean ${fmt(sum)}?`, text: f.some((x) => x.permanent) ? 'Some of this is deleted permanently. Caches rebuild themselves.' : 'Everything goes to the Recycle Bin, so you can restore it.', list, ok: `Clean ${fmt(sum)}`, okIcon: 'sparkles' })) {
+      const list = f.map((x) => `<div class="row"><span class="badge">${icon(x.permanent ? 'trash' : 'folder')}</span><div class="grow"><div class="name">${esc(x.name)}</div><div class="sub ${x.permanent ? 'perm' : ''}">${x.permanent ? 'Deleted permanently' : 'Moved to the ' + (S.binName || 'Recycle Bin')}</div></div><span class="size">${fmt(x.bytes)}</span></div>`).join('');
+      if (await confirmSheet({ title: `Clean ${fmt(sum)}?`, text: f.some((x) => x.permanent) ? 'Some of this is deleted permanently. Caches rebuild themselves.' : `Everything goes to the ${S.binName || 'Recycle Bin'}, so you can restore it.`, list, ok: `Clean ${fmt(sum)}`, okIcon: 'sparkles' })) {
         touched = false; await act(b, 'approve', { ids: [...selected] });
       }
     });
@@ -271,7 +271,7 @@
       const dir = b.dataset.add;
       const v = await sheet(`<h3>Add ${esc(dir.split(/[\\/]/).pop())}</h3><p>How should I clean this folder?</p>
         <div class="choices">
-          <button class="choice" data-v="older">${icon('trash')}<div><div class="name">Move old files to the Recycle Bin</div><div class="sub">Files older than 30 days. You can restore them.</div></div></button>
+          <button class="choice" data-v="older">${icon('trash')}<div><div class="name">Move old files to the ${S.binName || 'Recycle Bin'}</div><div class="sub">Files older than 30 days. You can restore them.</div></div></button>
           <button class="choice" data-v="all">${icon('alert')}<div><div class="name">Delete everything inside</div><div class="sub perm">Permanent. Only for folders that rebuild themselves.</div></div></button>
         </div><div class="btns" style="grid-template-columns:1fr"><button class="btn ghost" data-v="">Cancel</button></div>`);
       if (v) act(b, 'addPlace', { path: dir, clearEverything: v === 'all' }, 'Added to your places');

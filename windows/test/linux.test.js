@@ -1,0 +1,71 @@
+// Runs Mimo's Linux engine against a fake home folder laid out like Ubuntu (XDG folders, ~/.local/share/Trash).
+Object.defineProperty(process, 'platform', { value: 'linux' });
+const fs = require('fs'), path = require('path'), os = require('os'), assert = require('assert');
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mimo-linux-'));
+const home = path.join(root, 'home', 'great');
+process.env.HOME = home; process.env.USERPROFILE = home;
+delete process.env.XDG_CACHE_HOME; delete process.env.XDG_CONFIG_HOME; delete process.env.XDG_DATA_HOME;
+const old = (Date.now() - 90 * 86400000) / 1000;
+function file(p, bytes, oldFile) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, Buffer.alloc(bytes, 1)); if (oldFile) fs.utimesSync(p, old, old); }
+const H = (...p) => path.join(home, ...p);
+file(H('.cache/google-chrome/Default/Cache/Cache_Data/f_000001'), 300000);
+file(H('.cache/google-chrome/Default/Code Cache/js/abc'), 100000);
+file(H('.cache/mozilla/firefox/ab12.default-release/cache2/entries/X'), 80000);
+file(H('snap/firefox/common/.cache/mozilla/firefox/cd34.default/cache2/entries/Y'), 60000);
+file(H('.cache/thumbnails/large/a.png'), 40000);
+file(H('.cache/pip/http/1/2/3'), 70000);
+file(H('.npm/_cacache/content-v2/sha512/aa'), 150000);
+file(H('.config/Code/CachedData/x/y.js'), 90000);
+file(H('.config/discord/Cache/Cache_Data/data_1'), 120000);
+file(H('.local/share/Trash/files/old-photo.jpg'), 500000);
+file(H('.local/share/Trash/info/old-photo.jpg.trashinfo'), 100);
+file(H('Downloads/zoom_amd64.deb'), 700000, true);
+file(H('Downloads/new-tool.AppImage'), 300000, false);
+file(H('Downloads/notes.txt'), 9000, true);
+file(H('Documents/thesis.odt'), 90000, true);
+file(H('code/app/node_modules/react/index.js'), 250000);
+fs.utimesSync(H('code/app/node_modules'), old, old);
+
+const { Engine } = require('../src/engine');
+const trashed = [], calls = [];
+const fakeFetch = async (url, opts = {}) => { calls.push({ url, body: opts.body ? JSON.parse(opts.body) : null }); return { ok: true, status: 200, json: async () => ({ ok: true }) }; };
+const e = new Engine({ settingsFile: path.join(root, 'cfg', 'settings.json'), trash: async (p) => { trashed.push(p); fs.rmSync(p, { recursive: true, force: true }); }, appVersion: '1.5.3', fetchImpl: fakeFetch,
+  emptyRecycleBin: async () => { for (const s of ['files', 'info']) fs.rmSync(H('.local/share/Trash', s), { recursive: true, force: true }); } });
+e.on('notify', () => {});
+
+(async () => {
+  assert.strictEqual(e.platform, 'linux');
+  assert(e.readDisk() > 0, 'reads free space');
+  const ids = e.placesAll().map((p) => p.id);
+  for (const id of ['chrome', 'firefox', 'thumbnails', 'pip', 'npm', 'vscode', 'discord', 'installers', 'bin']) assert(ids.includes(id), 'finds place ' + id);
+  for (const id of ['temp', 'whatsapp', 'edge', 'crashdumps']) assert(!ids.includes(id), 'no Windows-only or missing place ' + id);
+  assert(e.snapshot().binName === 'Trash' && e.snapshot().fileManager === 'Files', 'Linux wording');
+  assert(e.snapshot().places.find((p) => p.id === 'bin').name === 'Empty the Trash');
+  await e.runMap(true);
+  assert.strictEqual(e.map.nodeModules.length, 1, 'found node_modules');
+  assert(e.map.known.firefox >= 140000, 'sized both Firefox caches (normal + snap)');
+  assert(e.map.known.bin >= 500000, 'sized the Trash');
+  e.setPlace('installers', true); e.setPlace('bin', true);
+  await e.prepareReview('manual');
+  const f = Object.fromEntries(e.findings.map((x) => [x.id, x]));
+  assert.strictEqual(f.installers.items.length, 1, 'only the old .deb, not the new AppImage or a text file');
+  assert(f.installers.items[0].path.endsWith('zoom_amd64.deb'));
+  assert(f.bin.bytes >= 500000, 'Trash finding');
+  assert(!e.findings.some((x) => x.items.some((i) => i.path.includes('thesis'))), 'never touches documents');
+  e.approve(['chrome', 'firefox', 'installers', 'bin', 'thumbnails']);
+  await new Promise((r) => setTimeout(r, 300));
+  while (e.isCleaning || e.isScanning) await new Promise((r) => setTimeout(r, 50));
+  assert(!fs.existsSync(H('.cache/google-chrome/Default/Cache/Cache_Data')), 'Chrome cache cleared');
+  assert(!fs.existsSync(H('snap/firefox/common/.cache/mozilla/firefox/cd34.default/cache2/entries')), 'snap Firefox cache cleared');
+  assert(trashed.some((p) => p.endsWith('zoom_amd64.deb')), 'old installer moved to the Trash');
+  assert(!fs.existsSync(H('.local/share/Trash/files/old-photo.jpg')), 'Trash emptied');
+  assert(fs.existsSync(H('Downloads/new-tool.AppImage')) && fs.existsSync(H('Documents/thesis.odt')), 'kept new download and documents');
+  assert(fs.existsSync(H('.cache/pip/http/1/2/3')), 'unselected place kept');
+  const report = calls.find((c) => c.url.endsWith('/cleanups'));
+  assert(report && report.body.platform === 'linux' && !/thesis|zoom/.test(JSON.stringify(report.body)), 'cleanup reported as Linux, no file names');
+  await e.reportInstall();
+  const ping = calls.find((c) => c.url.endsWith('/installs'));
+  assert(ping && ping.body.platform === 'linux' && ping.body.osVersion && !/^Windows/.test(ping.body.osVersion), 'install ping says Linux: ' + (ping && ping.body.osVersion));
+  console.log('ALL LINUX ENGINE TESTS PASSED', { findings: Object.keys(f), os: ping.body.osVersion });
+  fs.rmSync(root, { recursive: true, force: true });
+})().catch((err) => { console.error('TEST FAILED:', err.message); process.exit(1); });

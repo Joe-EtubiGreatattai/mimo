@@ -9,8 +9,9 @@ A tiny Mac menu bar app that watches your free space every minute and cleans up 
 
 <p align="center">
   <a href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo.dmg"><strong>⬇︎ Download for macOS</strong></a> &nbsp;·&nbsp;
-  <a href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo-Setup.exe"><strong>⬇︎ Download for Windows</strong></a><br>
-  <sub>Free · macOS 13+ (Apple silicon and Intel) · Windows 10 and 11</sub>
+  <a href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo-Setup.exe"><strong>⬇︎ Download for Windows</strong></a> ·
+  <a href="https://github.com/Joe-EtubiGreatattai/mimo/releases/latest/download/Mimo-Linux.AppImage"><strong>⬇︎ Download for Linux</strong></a><br>
+  <sub>Free · macOS 13+ (Apple silicon and Intel) · Windows 10 and 11 · 64-bit Linux (AppImage or .deb)</sub>
 </p>
 
 ---
@@ -56,6 +57,12 @@ Run **Mimo-Setup.exe**. Mimo installs for your user (no admin needed) and lives 
 On Windows Mimo looks after temporary files (older than 2 days), Chrome, Edge and Firefox caches, old WhatsApp Desktop media, Teams, Slack and Discord caches, Spotify's cache, crash dumps, and npm, Yarn, pip and Gradle caches. Old installers in Downloads, NuGet packages and emptying the Recycle Bin are available but off by default. Everything else works like the Mac version: Review before deleting, mapping your folders, your own places, and phone control.
 
 The Windows app is in [`windows/`](windows/) and is built and tested on a Windows machine by GitHub Actions for every release.
+
+## Linux
+
+Download **Mimo-Linux.AppImage**, make it executable (right-click › Properties › Allow executing as program, or `chmod +x Mimo-Linux.AppImage`) and open it. It works on any 64-bit distro and updates itself. On Ubuntu and Debian you can install **Mimo-Linux.deb** instead (`sudo apt install ./Mimo-Linux.deb`); it tells you when a new version is out. Mimo sits in the top bar (on GNOME, the AppIndicator extension shows tray icons) and starts at login.
+
+On Linux Mimo looks after Chrome, Chromium, Firefox, Brave and Edge caches (Snap versions too), the thumbnail cache, Slack, Discord, Teams, Spotify and VS Code caches, and npm, Yarn, pip, Go and Gradle caches. Old installers in Downloads (.deb, .rpm, .AppImage, archives), the pnpm store, Cargo downloads and emptying the Trash are available but off by default. The Linux app shares its code with Windows in [`windows/`](windows/) and is built and tested on Ubuntu for every release.
 
 ## Build from source
 

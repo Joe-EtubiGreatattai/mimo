@@ -1,9 +1,11 @@
-// Mimo for Windows — Electron shell: tray icon, window, notifications, start at login.
+// Mimo for Windows and Linux — Electron shell: tray icon, window, notifications, start at login.
 const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, shell, nativeImage, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 const { Engine } = require('./engine');
+const { trashDir, IS_LINUX } = require('./places');
 
 const SMOKE = process.argv.includes('--smoke-test');
 const ICONS = path.join(__dirname, 'icons');
@@ -15,6 +17,15 @@ let win = null, tray = null, engine = null, quitting = false;
 
 function emptyRecycleBin() {
   return new Promise((resolve) => {
+    if (IS_LINUX) {
+      // Same as "Empty Trash" in Files: remove the trashed files and their info records
+      const t = trashDir();
+      for (const sub of ['files', 'info', 'expunged']) {
+        let kids = []; try { kids = fs.readdirSync(path.join(t, sub)); } catch {}
+        for (const k of kids) { try { fs.rmSync(path.join(t, sub, k), { recursive: true, force: true }); } catch {} }
+      }
+      return resolve();
+    }
     if (process.platform !== 'win32') return resolve();
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Clear-RecycleBin -Force -ErrorAction SilentlyContinue'], { windowsHide: true }, () => resolve());
   });
@@ -57,6 +68,44 @@ function updateTray() {
   ]));
 }
 
+// ---------- start at login ----------
+// Windows uses the login items API. Linux has no such API in Electron, so Mimo writes a
+// standard autostart entry (~/.config/autostart/mimo.desktop) that desktop environments read.
+function linuxAutostartFile() { return path.join(process.env.XDG_CONFIG_HOME || path.join(app.getPath('home'), '.config'), 'autostart', 'mimo.desktop'); }
+function setStartAtLogin(on) {
+  if (!app.isPackaged) return;
+  if (!IS_LINUX) return app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] });
+  const file = linuxAutostartFile();
+  try {
+    if (!on) { fs.rmSync(file, { force: true }); return; }
+    const exe = process.env.APPIMAGE || process.execPath; // the AppImage file itself, or /opt/Mimo/mimo for the .deb
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, ['[Desktop Entry]', 'Type=Application', 'Name=Mimo', 'Comment=Watches your free space and cleans up before you run out',
+      `Exec="${exe}" --hidden`, 'Icon=mimo', 'Terminal=false', 'X-GNOME-Autostart-enabled=true', ''].join('\n'));
+  } catch {}
+}
+
+// The .deb can't replace itself without a password prompt, so it only tells you when a new version is out.
+const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+function watchDebReleases() {
+  const check = async () => {
+    if (engine.s.autoUpdate === false) return;
+    setStatus('Checking for updates…');
+    try {
+      const r = await fetch('https://api.github.com/repos/Joe-EtubiGreatattai/mimo/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
+      const v = String((await r.json()).tag_name || '').replace(/^v/, '');
+      if (v && newer(v, app.getVersion())) {
+        setStatus(`Mimo ${v} is out. Download Mimo-Linux.deb from the Mimo website to update.`);
+        if (engine.s.toldAboutVersion !== v) { engine.s.toldAboutVersion = v; engine.save(); notify({ title: 'Mimo 🐶', body: `Mimo ${v} is out! Get it from the Mimo website.` }); }
+      } else setStatus(`You're on the latest version (${app.getVersion()}).`);
+    } catch { setStatus("Couldn't check for updates. I'll try again later."); }
+  };
+  debCheck = check;
+  setTimeout(check, 60_000);
+  setInterval(check, 6 * 3600_000);
+}
+let debCheck = null;
+
 // ---------- over-the-air updates ----------
 // Checks GitHub Releases every 6 hours, downloads new versions in the background
 // and installs them silently when Mimo isn't busy, then starts him again.
@@ -64,6 +113,7 @@ let autoUpdater = null;
 function setStatus(t) { if (engine) { engine.updateStatus = t; engine.changed(); } }
 function setupUpdates() {
   if (!app.isPackaged) return;
+  if (IS_LINUX && !process.env.APPIMAGE) return watchDebReleases();
   try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -130,10 +180,11 @@ function registerIpc() {
         const allowed = ['cleanBelowGB', 'askFirst', 'reportMinutes', 'countInstall', 'startAtLogin', 'autoUpdate'];
         if (!allowed.includes(args.key)) return false;
         engine.set(args.key, args.value);
-        if (args.key === 'startAtLogin') app.setLoginItemSettings({ openAtLogin: !!args.value, args: ['--hidden'] });
+        if (args.key === 'startAtLogin') setStartAtLogin(args.value);
         return true;
       }
       case 'checkUpdate':
+        if (debCheck) { debCheck(); return true; }
         if (!autoUpdater) { setStatus('Updates work in the installed app.'); return true; }
         autoUpdater.checkForUpdates().catch(() => setStatus("Couldn't check for updates. I'll try again later."));
         return true;
@@ -169,10 +220,10 @@ app.whenReady().then(async () => {
   engine.on('notify', notify);
   engine.on('openReview', () => createWindow('review'));
 
-  if (engine.s.startAtLogin && app.isPackaged) app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] });
+  if (engine.s.startAtLogin) setStartAtLogin(true);
 
   tray = new Tray(trayIcon());
-  tray.on('click', () => (win && win.isVisible() ? win.hide() : createWindow()));
+  tray.on('click', () => (win && win.isVisible() ? win.hide() : createWindow())); // Linux tray menus ignore clicks; "Open Mimo" is in the menu
   updateTray();
 
   const startedHidden = process.argv.includes('--hidden');
